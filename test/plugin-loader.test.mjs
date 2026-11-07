@@ -99,6 +99,12 @@ test('real plugin set registers Instagram and verified-referral commands', async
     assert.equal(names.has('igfunnel'), true);
     assert.equal(names.has('referralstatus'), true);
     assert.equal(names.has('referralprocess'), true);
+    assert.equal(names.has('acad'), true);
+    assert.equal(names.has('remini'), true);
+    assert.equal(names.has('poll'), true);
+    assert.equal(names.has('mediainfo'), true);
+    assert.equal(names.has('waform'), true);
+    assert.equal(names.has('wacapabilities'), true);
   } finally {
     loader.close();
   }

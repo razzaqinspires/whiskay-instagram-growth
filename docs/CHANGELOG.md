@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.10.16 — Unified WhatsApp message router and Video HD presets
+
+- Route outgoing plugin messages through one type-aware adapter for Native Flow, quick replies, CTA URL/WebView/Copy/Call/Catalog, lists, template compatibility, rich cards, carousel, poll, supported media, contacts, static location, and text fallbacks.
+- Expose the adapter consistently to plugin command contexts while retaining command re-entry through owner authorization and anti-spam checks.
+- Extend incoming serializer classification for button/list/template responses and more general quoted-message context.
+- Add contact/vCard and coordinate validation; require HTTPS for URL buttons; reject remote media URLs and generic fake Product/payment/status/live-location/fake-AI payloads.
+- Expand `.waform` and `.wacapabilities` to demonstrate transport selection and real compatibility boundaries.
+- Add `.remini inspect` and `balanced`, `sharp`, `clean`, and `fast` local FFmpeg presets with filter fallback and output validation.
+- Retain uploaded serializer files as byte-identical vendor references; do not import fake AI-forwarding or fake identity generators into the active runtime.
+- No WhatsApp/Instagram session or Growth database migration; no new npm dependencies.
+
+## 0.10.15 — Academi.cx document-review integration
+
+- Add isolated `.acad` plugin for AI-writing indicator checks, similarity checks, combined checks, status, paginated history, report downloads, and permanent check deletion.
+- Reimplement the friend-provided CLI feature as an ESM client against the published Academi.cx API; no browser scraping, cookie extraction, private endpoint imitation, or Turnitin endpoint impersonation.
+- Add text and local PDF/DOC/DOCX/TXT submission with 4 MiB multipart and signed-upload flow up to 50 MiB.
+- Add explicit `CONFIRM` token before every operation that submits a check or permanently deletes a check.
+- Pin API host, read key only from `.env`, add idempotency keys, input-folder confinement, symlink/path traversal rejection, public HTTPS URL checks, bounded report downloads, timeouts, and error redaction.
+- Update menu rendering so all Instagram/Growth categories remain above `━━━━━━━━━━━━━━━━━━━━━━━━` and Academi.cx remains below it as an independent plugin.
+- Do not add `.acad balance`, usage, wallet, payment, credit, ledger, or billing features to WHISKAY. Provider-side API charges remain external and are disclosed before submit.
+- Update README, menu example, feature docs, release notes, upgrade guide, QA report, and script/documentation inventory.
+
+## 0.10.14 — Native Flow, serializer compatibility, and local Video HD
+- Preserve four owner-provided Baileys serializer/helper files under `vendor/baileys-serializer-reference/` for audit; do not import their CommonJS APIs into the ESM runtime.
+- Expand the runtime serializer to unwrap common message wrappers, detect image/video/PTV/audio/document/sticker media, read quoted media, classify structured message types, and download media under strict byte caps.
+- Extend Native Flow for quick reply, single select/list, CTA URL, WebView URL, CTA Copy, CTA Call, and CTA Catalog; add legacy hydrated Template Buttons as compatibility only.
+- Add standard rich cards, media-capable carousel, native polls, and a bounded poll creation cache wired to Baileys `getMessage` for vote decryption.
+- Add `.poll`, `.mediainfo`, `.waform`, `.wacapabilities`, `.remini` and aliases; keep Instagram commands grouped separately in menu output.
+- Add local FFmpeg/FFprobe video enhancement with input/output/duration/dimension/time bounds. This is local resize/filter processing, not the Remini cloud AI service.
+- Deliberately exclude fake quoted/product/payment generators, call control/music, false AI/forwarding attribution, payment flows, and unverified product catalog metadata.
+- Fix Academi.cx input validation so outside-inbox traversal is rejected before file extension validation.
+- Keep Baileys pinned to `7.0.0-rc14`; no WhatsApp/Instagram session or Growth database schema migration.
+
+## 0.10.13 — Academi.cx document review and menu separation
+- Added isolated Academi.cx document-review commands with environment-only API key handling, file confinement, signed uploads, report retrieval, and error redaction.
+- Separated core, Instagram/growth, and external document/media tools in the command menu.
+- Kept provider usage limits/charges external; no internal balance, wallet, credit, ledger, budget, or payment subsystem.
+
+
 ## 0.10.9 — Owner-only group mode and content-to-follower intelligence
 - Added `.mode status`, `.mode self`, `.mode public`, and `.mode groups on|off`; mode is restricted to the authenticated owner and persisted atomically in a private runtime state file.
 - Added owner-only group access in self mode. Group participants other than the configured owner remain rejected; group admins do not receive implicit privileges.

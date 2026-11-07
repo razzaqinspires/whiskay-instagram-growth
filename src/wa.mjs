@@ -6,6 +6,7 @@ import { getReconnectDelay } from './lib/reconnect-policy.mjs';
 import { classifyMessageUpsert } from './lib/message-ingress.mjs';
 import { extractMessageText, parseCommand } from './commands.mjs';
 import { config } from './config.mjs';
+import { getPollCreationMessage } from './lib/poll-store.mjs';
 
 const { pairingNumber: phoneNumber, sessionDir } = config.whatsapp;
 const logger = pino({
@@ -96,7 +97,8 @@ async function startSocketInternal() {
     browser: Browsers.windows('Chrome'),
     logger,
     markOnlineOnConnect: false,
-    syncFullHistory: config.whatsapp.syncFullHistory
+    syncFullHistory: config.whatsapp.syncFullHistory,
+    getMessage: async key => getPollCreationMessage(key)
   });
   activeSocket = sock;
 

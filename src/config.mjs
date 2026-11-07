@@ -87,6 +87,7 @@ export function validateConfig(raw = {}, secrets = process.env, { requireWhatsAp
   const growth = object(root.growth ?? {}, 'growth', errors);
   const identity = object(root.identity ?? {}, 'identity', errors);
   const referralRaw = object(root.referral ?? {}, 'referral', errors);
+  const academixRaw = object(root.academix ?? {}, 'academix', errors);
 
   const pairingNumber = requireWhatsApp || wa.pairingNumber
     ? phone(wa.pairingNumber, 'whatsapp.pairingNumber', errors) : '';
@@ -221,6 +222,20 @@ export function validateConfig(raw = {}, secrets = process.env, { requireWhatsAp
   const autoProcess = bool(webhookRaw.autoProcess, 'referral.webhook.autoProcess', false, errors);
   if (webhookEnabled && (!referralEnabled || webhookSecret.length < 32)) errors.push('Webhook aktif memerlukan referral.enabled dan HMAC secret minimal 32 karakter.');
 
+  // Academi.cx is an isolated document-review integration. The API host is
+  // intentionally fixed in code; secrets are read only from the process environment.
+  const academixEnabled = bool(academixRaw.enabled, 'academix.enabled', true, errors);
+  const academixApiKeyEnv = String(academixRaw.apiKeyEnv ?? 'ACADEMICX_KEY').trim();
+  if (!/^[A-Z][A-Z0-9_]{2,80}$/.test(academixApiKeyEnv)) errors.push('academix.apiKeyEnv harus nama environment variable valid.');
+  const academixApiKey = String(secrets[academixApiKeyEnv] ?? '');
+  const academixTimeoutMs = int(academixRaw.timeoutMs, 'academix.timeoutMs', 30000, 1000, 120000, errors);
+  const academixMaxFileBytes = int(academixRaw.maxFileBytes, 'academix.maxFileBytes', 52428800, 1024, 52428800, errors);
+  const academixMaxTextChars = int(academixRaw.maxTextChars, 'academix.maxTextChars', 2500, 300, 10000, errors);
+  const academixInboxDir = absPath(academixRaw.inboxDir, 'academix.inboxDir', './data/academic-inputs', errors, { privateState: true });
+  if (academixInboxDir === path.parse(academixInboxDir).root || academixInboxDir === PROJECT_ROOT) {
+    errors.push('academix.inboxDir tidak boleh menunjuk root filesystem atau root proyek.');
+  }
+
   const antiSpam = {
     enabled: bool(anti.enabled, 'antiSpam.enabled', true, errors),
     windowMs: int(anti.windowMs, 'antiSpam.windowMs', 10000, 1000, 300000, errors),
@@ -240,10 +255,11 @@ export function validateConfig(raw = {}, secrets = process.env, { requireWhatsAp
     igPythonBin: absPath(pythonBinRaw, 'instagram.pythonBin', './.venv-instagram/bin/python', errors),
     igStatsFile: absPath(ig.statsFile, 'instagram.statsFile', './data/instagram-stats.json', errors, { privateState: true }),
     igGuardFile: absPath(ig.guardFile, 'instagram.guardFile', './data/instagram-safety.json', errors, { privateState: true }),
-    growthDb: absPath(growth.databaseFile, 'growth.databaseFile', './data/instagram-growth.json', errors, { privateState: true })
+    growthDb: absPath(growth.databaseFile, 'growth.databaseFile', './data/instagram-growth.json', errors, { privateState: true }),
+    academixInbox: academixInboxDir
   };
 
-  const uniqueFiles = [paths.lidMapFile, paths.igSessionFile, paths.igStatsFile, paths.igGuardFile, paths.growthDb, runtimeModeFile];
+  const uniqueFiles = [paths.lidMapFile, paths.igSessionFile, paths.igStatsFile, paths.igGuardFile, paths.growthDb, runtimeModeFile, paths.academixInbox];
   if (new Set(uniqueFiles).size !== uniqueFiles.length) errors.push('File data/session harus menggunakan path yang berbeda.');
   if (paths.waSessionDir === path.parse(paths.waSessionDir).root || paths.waSessionDir === (IN_NODE_TEST ? TEST_STATE_ROOT : PROJECT_ROOT)) {
     errors.push('whatsapp.sessionDir tidak boleh menunjuk root filesystem atau direktori proyek.');
@@ -280,6 +296,7 @@ export function validateConfig(raw = {}, secrets = process.env, { requireWhatsAp
         requireOwnerApproval, allowedActions: [...safeAllowedActions] }
     },
     growth: { databaseFile: paths.growthDb },
+    academix: { enabled: academixEnabled, apiKeyEnv: academixApiKeyEnv, apiKey: academixApiKey, timeoutMs: academixTimeoutMs, maxFileBytes: academixMaxFileBytes, maxTextChars: academixMaxTextChars, inboxDir: paths.academixInbox },
     identity: { lidMapFile: paths.lidMapFile },
     referral: { enabled: referralEnabled,
       claim: { endpoint: claimEndpoint, allowedHosts, serviceTokenEnv, serviceToken, timeoutMs: claimTimeoutMs, delayMs: claimDelayMs, maxAttempts: claimMaxAttempts },

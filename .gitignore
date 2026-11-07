@@ -37,3 +37,9 @@ data/*.sqlite-journal
 .venv-instagram/
 __pycache__/
 *.pyc
+
+# Academi.cx review inbox and temporary report data (may contain private academic work)
+data/academic-inputs/
+
+# Private video input/output and temp artifacts
+data/remini/

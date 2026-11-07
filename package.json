@@ -1,8 +1,8 @@
 {
   "name": "whiskay-instagram-growth",
-  "version": "0.10.12",
+  "version": "0.10.16",
   "private": true,
-  "description": "WHISKAY private experimental WhatsApp self-bot with one Instagram session, organic-only growth campaigns, content intelligence, and read-only insights.",
+  "description": "WHISKAY private experimental WhatsApp self-bot with one Instagram session, organic-only growth campaigns, content intelligence, read-only insights, and isolated Academi.cx document review.",
   "type": "module",
   "engines": {
     "node": ">=22.5.0 <23",

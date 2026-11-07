@@ -107,5 +107,13 @@
       "secretEnv": "REFERRAL_WEBHOOK_SECRET",
       "autoProcess": false
     }
+  },
+  "academix": {
+    "enabled": true,
+    "apiKeyEnv": "ACADEMICX_KEY",
+    "timeoutMs": 30000,
+    "maxFileBytes": 52428800,
+    "maxTextChars": 2500,
+    "inboxDir": "./data/academic-inputs"
   }
 }

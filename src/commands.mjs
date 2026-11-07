@@ -3,8 +3,12 @@ import { renderCommandMenu } from './lib/menu-renderer.mjs';
 import { AntiSpamGuard } from './security/anti-spam.mjs';
 import { sanitizeError } from './security/redact.mjs';
 import { config } from './config.mjs';
-import { extractCommandFromInteractiveResponse, sendNativeFlow, sendNativeCarousel } from './lib/native-flow.mjs';
+import { extractCommandFromInteractiveResponse } from './lib/native-flow.mjs';
+import { createWhatsAppMessageRouter } from './lib/whatsapp-message-router.mjs';
+import { inspectIncomingMessage, downloadMediaPayload, describeMessageMedia, unwrapMessageContent } from './lib/baileys-serializer.mjs';
+import { rememberPollCreationMessage } from './lib/poll-store.mjs';
 import { createRuntimeModeStore } from './lib/runtime-mode.mjs';
+import { commandActionId } from './lib/native-flow.mjs';
 
 export const runtimeModeStore = createRuntimeModeStore({
   filePath: config.commands.runtimeModeFile,
@@ -12,6 +16,35 @@ export const runtimeModeStore = createRuntimeModeStore({
   initialAllowGroups: config.commands.allowGroups
 });
 const PUBLIC_PRIVATE_COMMANDS = new Set(['help', 'menu', 'igservices', 'igservice']);
+
+function buildCommandMenuSections(commands, prefix) {
+  const valid = commands.filter(item => item && typeof item.name === 'string');
+  const isInstagram = item => /^ig/i.test(item.name) || /instagram|growth|organic|follower|content intelligence/i.test(item.category || '');
+  const isAddon = item => /academic|document review|external tools|media processing/i.test(item.category || '');
+  const groups = [
+    { title: 'CORE · WHATSAPP TOOLS', rows: valid.filter(item => !isInstagram(item) && !isAddon(item)) },
+    { title: '━━━━━━━━ INSTAGRAM COMMANDS ━━━━━━━━', rows: valid.filter(isInstagram) },
+    { title: '━━━━━━━━ DOCUMENTS & MEDIA ━━━━━━━━', rows: valid.filter(item => !isInstagram(item) && isAddon(item)) }
+  ];
+  const sections = [];
+  for (const group of groups) {
+    const items = group.rows;
+    for (let offset = 0; offset < items.length; offset += 20) {
+      const chunk = items.slice(offset, offset + 20);
+      if (!chunk.length) continue;
+      sections.push({
+        title: offset ? `${group.title.slice(0, 62)} · ${Math.floor(offset / 20) + 1}` : group.title.slice(0, 80),
+        rows: chunk.map(item => ({
+          title: `${prefix}${item.name}`.slice(0, 80),
+          description: String(item.description || item.category || '').slice(0, 120),
+          id: commandActionId(`${prefix}${item.name}`)
+        }))
+      });
+    }
+  }
+  return sections;
+}
+
 let antiSpamGuard;
 export function getAntiSpamStats() { return getAntiSpamGuard().stats(); }
 
@@ -34,18 +67,11 @@ function getAntiSpamGuard() {
 export function extractMessageText(message = {}) {
   const interactiveCommand = extractCommandFromInteractiveResponse(message);
   if (interactiveCommand) return interactiveCommand;
-  let content = message;
-  for (let depth = 0; depth < 8 && content; depth++) {
-    if (content.conversation) return content.conversation;
-    if (content.extendedTextMessage?.text) return content.extendedTextMessage.text;
-    if (content.imageMessage?.caption) return content.imageMessage.caption;
-    if (content.videoMessage?.caption) return content.videoMessage.caption;
-    if (content.documentMessage?.caption) return content.documentMessage.caption;
-    if (content.documentWithCaptionMessage?.message) { content = content.documentWithCaptionMessage.message; continue; }
-    const wrapper = content.ephemeralMessage?.message || content.viewOnceMessage?.message || content.viewOnceMessageV2?.message || content.viewOnceMessageV2Extension?.message || content.editedMessage?.message;
-    if (wrapper) { content = wrapper; continue; }
-    break;
-  }
+  const content = unwrapMessageContent(message);
+  if (content.conversation) return String(content.conversation);
+  if (content.extendedTextMessage?.text) return String(content.extendedTextMessage.text);
+  const media = describeMessageMedia(content);
+  if (media?.caption) return media.caption;
   return '';
 }
 
@@ -238,6 +264,23 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
   if (isGroup && (runtimeMode.mode !== 'self' || !runtimeMode.allowGroups)) return false;
 
   const reply = async text => sock.sendMessage(key.remoteJid, { text: String(text).slice(0, 4000) }, { quoted: msg });
+  const messageInfo = inspectIncomingMessage(msg);
+  const messageRouter = createWhatsAppMessageRouter({
+    sock,
+    jid: key.remoteJid,
+    quoted: msg,
+    reply,
+    rememberPoll: rememberPollCreationMessage
+  });
+  const {
+    send, sendInteractive, sendNativeButtons, sendCarousel, sendRichCard,
+    sendTemplateButtons: sendTemplate, sendPoll, sendMedia, sendContact, sendLocation
+  } = messageRouter;
+  const downloadMedia = async ({ quoted = false, maxBytes } = {}) => {
+    const descriptor = quoted ? messageInfo.quotedMedia : messageInfo.media;
+    if (!descriptor) throw new Error(quoted ? 'Pesan kutipan tidak memiliki media.' : 'Pesan ini tidak memiliki lampiran media.');
+    return downloadMediaPayload(descriptor, { maxBytes });
+  };
   const sender = key.participant || key.remoteJid;
   const antiSpamCommandKey = parsed.command === 'mode' ? `mode:${parsed.args.join(':') || 'status'}` : parsed.command;
   const gate = getAntiSpamGuard().check({ sender, command: antiSpamCommandKey, messageId: key.id });
@@ -250,9 +293,12 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
     }
     return false;
   }
-  const sendInteractive = async options => sendNativeFlow(sock, key.remoteJid, options, msg);
-  const sendCarousel = async options => sendNativeCarousel(sock, key.remoteJid, options, msg);
-  const context = { sock, msg, key, lidManager, pluginLoader, command: parsed.command, prefix: parsed.prefix, args: parsed.args, rawArgs: parsed.rawArgs, reply, sendInteractive, sendCarousel, logger, runtimeMode };
+  const context = {
+    sock, msg, key, lidManager, pluginLoader, command: parsed.command, prefix: parsed.prefix, args: parsed.args, rawArgs: parsed.rawArgs,
+    reply, send, sendInteractive, sendNativeButtons, sendCarousel, sendRichCard, sendTemplateButtons: sendTemplate,
+    sendPoll, sendMedia, sendContact, sendLocation, downloadMedia, messageInfo, isPollUpdate: messageInfo.isPollUpdate,
+    pollUpdate: messageInfo.pollUpdate, pollCreationMessageKey: messageInfo.pollCreationMessageKey, logger, runtimeMode
+  };
   try {
     if (parsed.command === 'mode') {
       const action = String(parsed.args[0] || 'status').toLowerCase();
@@ -295,7 +341,19 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
       if (runtimeMode.mode === 'public') commands = commands.filter(item => PUBLIC_PRIVATE_COMMANDS.has(item.name));
       else commands = [...commands, { name: 'mode', aliases: [], description: 'Atur mode self/public dan akses grup owner-only', category: 'Runtime Access', usage: 'status|self|public|groups on|off' }];
       const menu = renderCommandMenu(commands, { prefix: parsed.prefix, prefixes: getCommandPrefixes() });
-      await reply(menu);
+      const sections = buildCommandMenuSections(commands, parsed.prefix);
+      if (sections.length > 0 && sections.length <= 10) {
+        const rows = sections.reduce((count, section) => count + section.rows.length, 0);
+        await sendInteractive({
+          title: 'WHISKAY COMMAND MENU',
+          body: `Pilih dari ${rows} command yang tersedia. Command Instagram ditempatkan dalam section tersendiri.
+Gunakan .plugins untuk daftar teks lengkap.`,
+          footer: 'Native Flow · Single Select',
+          buttons: [{ type: 'single_select', title: 'Browse commands', sections }]
+        });
+      } else {
+        await reply(menu);
+      }
       return true;
     }
     const result = await pluginLoader?.execute(parsed.command, context);

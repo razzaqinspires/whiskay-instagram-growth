@@ -10,8 +10,37 @@ import { randomBytes } from 'node:crypto';
  */
 
 const ACTION_PREFIX = 'wsk:cmd:';
-const BUTTON_TYPES = new Set(['quick_reply', 'cta_url', 'cta_call', 'cta_copy', 'single_select']);
+const BUTTON_TYPES = new Set(['quick_reply', 'cta_url', 'webview_url', 'open_webview', 'url', 'cta_call', 'cta_copy', 'cta_catalog', 'single_select', 'list']);
 const TEXT_LIMIT = 1024;
+
+function httpsUrl(rawValue, label) {
+  const raw = cleanText(rawValue, label, 2048, true);
+  let url;
+  try { url = new URL(raw); } catch { throw new TypeError(`${label} tidak valid.`); }
+  if (url.protocol !== 'https:' || url.username || url.password) {
+    throw new TypeError(`${label} wajib HTTPS tanpa kredensial.`);
+  }
+  return url.toString();
+}
+
+function localMediaSource(input, label) {
+  if (Buffer.isBuffer(input) || input instanceof Uint8Array) return input;
+  if (typeof input === 'string') {
+    if (/^(?:https?|data|blob|file):/i.test(input.trim())) {
+      throw new TypeError(`${label} hanya menerima Buffer atau path lokal; URL remote tidak diunduh.`);
+    }
+    if (!input.trim()) throw new TypeError(`${label} kosong.`);
+    return { url: input };
+  }
+  if (input && typeof input === 'object') {
+    const url = typeof input.url === 'string' ? input.url.trim() : '';
+    if (/^(?:https?|data|blob|file):/i.test(url)) {
+      throw new TypeError(`${label} hanya menerima media lokal; URL remote tidak diunduh.`);
+    }
+    return input;
+  }
+  throw new TypeError(`${label} harus berupa Buffer atau path lokal.`);
+}
 
 function cleanText(value, field, max = TEXT_LIMIT, required = false) {
   const result = String(value ?? '').trim();
@@ -64,27 +93,34 @@ export function normalizeNativeButtons(buttons = []) {
     throw new RangeError('Native Flow membutuhkan 1–10 tombol.');
   }
   return buttons.map((button, index) => {
-    const name = String(button?.type || button?.name || 'quick_reply').toLowerCase();
+    let name = String(button?.type || button?.name || 'quick_reply').toLowerCase();
     if (!BUTTON_TYPES.has(name)) throw new TypeError(`Jenis tombol tidak didukung: ${name}`);
     const label = cleanText(button.title || button.display_text || button.label, `button ${index + 1} label`, 30, true);
     let params;
     if (name === 'quick_reply') {
       const id = cleanText(button.id, `button ${index + 1} id`, 120, true);
       params = { display_text: label, id };
-    } else if (name === 'cta_url') {
-      const rawUrl = cleanText(button.url, `button ${index + 1} url`, 2048, true);
-      let url;
-      try { url = new URL(rawUrl); } catch { throw new TypeError(`URL tombol ${index + 1} tidak valid.`); }
-      if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new TypeError('CTA URL hanya boleh menggunakan HTTP/HTTPS.');
-      params = { display_text: label, url: url.toString(), merchant_url: url.toString(), webview_interaction: button.webview_interaction !== false };
+    } else if (['cta_url', 'webview_url', 'open_webview', 'url'].includes(name)) {
+      const wantsWebview = ['webview_url', 'open_webview'].includes(name) || button.webview_interaction === true;
+      name = 'cta_url';
+      const rawUrl = cleanText(button.url || button.link, `button ${index + 1} url`, 2048, true);
+      const normalizedUrl = httpsUrl(rawUrl, `URL tombol ${index + 1}`);
+      const merchantUrl = httpsUrl(button.merchant_url || normalizedUrl, `Merchant URL tombol ${index + 1}`);
+      params = { display_text: label, url: normalizedUrl, merchant_url: merchantUrl, ...(wantsWebview ? { webview_interaction: true } : {}) };
     } else if (name === 'cta_call') {
       const phone = cleanText(button.phone, `button ${index + 1} phone`, 20, true).replace(/[\s()-]/g, '');
       if (!/^\+?[1-9]\d{6,14}$/.test(phone)) throw new TypeError('Nomor CTA Call harus dalam format internasional.');
       params = { display_text: label, phone, phone_number: phone };
     } else if (name === 'cta_copy') {
       const copyCode = cleanText(button.copy_code, `button ${index + 1} copy_code`, 256, true);
+      if (/(password|passwd|secret|api[_-]?key|access[_-]?token|bearer|private[_-]?key)/i.test(copyCode)) {
+        throw new TypeError('CTA Copy tidak boleh berisi password, token, API key, atau rahasia.');
+      }
       params = { display_text: label, id: cleanText(button.id || `copy_${index + 1}`, 'copy id', 120), copy_code: copyCode };
+    } else if (name === 'cta_catalog') {
+      params = { display_text: label };
     } else {
+      name = 'single_select';
       params = { title: cleanText(button.listTitle || label, 'single_select title', 80, true), sections: normalizeSections(button.sections) };
     }
     return { name, buttonParamsJson: JSON.stringify(params) };
@@ -104,6 +140,12 @@ export function buildNativeFlowTextFallback({ title = '', subtitle = '', body = 
         if (section.title) choices.push(`— ${section.title} —`);
         for (const row of section.rows || []) choices.push(`• ${row.title}: ${row.id}`);
       }
+    } else if (name === 'cta_copy') {
+      choices.push(`• ${button.title || button.display_text || 'Salin'}: ${button.copy_code || '[kode tidak tersedia]'}`);
+    } else if (['cta_url', 'webview_url', 'open_webview', 'url'].includes(name)) {
+      choices.push(`• ${button.title || button.display_text || 'Buka tautan'}: ${button.url || button.link || ''}`);
+    } else if (name === 'cta_call') {
+      choices.push(`• ${button.title || button.display_text || 'Telepon'}: ${button.phone || ''}`);
     } else {
       choices.push(`• ${button.title || button.display_text || button.label || button.id || 'Pilihan'}${button.id ? ` (${button.id})` : ''}`);
     }
@@ -172,8 +214,19 @@ export async function sendNativeFlow(sock, jid, options = {}, quoted = null, { b
   try {
     const buttons = normalizeNativeButtons(options.buttons);
     const baileys = await loadBaileys(injectedBaileys);
+    let preparedHeaderMedia = {};
+    const mediaInput = options.image || options.media;
+    const mediaType = ['image', 'video', 'document'].includes(options.mediaType) ? options.mediaType : 'image';
+    if (mediaInput) {
+      if (typeof baileys.prepareWAMessageMedia !== 'function' || typeof sock?.waUploadToServer !== 'function') {
+        throw new Error('Upload media untuk interactive header tidak tersedia pada socket ini.');
+      }
+      const mediaSource = localMediaSource(mediaInput, 'Interactive header media');
+      preparedHeaderMedia = await baileys.prepareWAMessageMedia({ [mediaType]: mediaSource }, { upload: sock.waUploadToServer });
+    }
+    const hasHeader = Boolean(options.title || options.subtitle || mediaInput);
     const interactiveMessage = {
-      ...(options.title || options.subtitle ? { header: { title: cleanText(options.title, 'title', 80), subtitle: cleanText(options.subtitle, 'subtitle', 120), hasMediaAttachment: false } } : {}),
+      ...(hasHeader ? { header: { ...(options.title ? { title: cleanText(options.title, 'title', 80) } : {}), ...(options.subtitle ? { subtitle: cleanText(options.subtitle, 'subtitle', 120) } : {}), hasMediaAttachment: Boolean(mediaInput), ...preparedHeaderMedia } } : {}),
       body: { text: cleanText(options.body, 'body', 3000) },
       ...(options.footer ? { footer: { text: cleanText(options.footer, 'footer', 200) } } : {}),
       ...(options.contextInfo ? { contextInfo: options.contextInfo } : {}),
@@ -212,6 +265,16 @@ export async function sendNativeCarousel(sock, jid, options = {}, quoted = null,
   try {
     const cards = buildCarouselCards(options.cards);
     const baileys = await loadBaileys(injectedBaileys);
+    for (let index = 0; index < options.cards.length; index += 1) {
+      const card = options.cards[index];
+      if (!card.image) continue;
+      if (typeof baileys.prepareWAMessageMedia !== 'function' || typeof sock?.waUploadToServer !== 'function') {
+        throw new Error(`Upload image carousel card ${index + 1} tidak tersedia.`);
+      }
+      const image = localMediaSource(card.image, `Carousel image card ${index + 1}`);
+      const prepared = await baileys.prepareWAMessageMedia({ image }, { upload: sock.waUploadToServer });
+      cards[index].header = { ...cards[index].header, hasMediaAttachment: true, ...prepared };
+    }
     const content = {
       interactiveMessage: {
         header: { title: cleanText(options.title, 'carousel title', 80), hasMediaAttachment: false },
@@ -226,6 +289,65 @@ export async function sendNativeCarousel(sock, jid, options = {}, quoted = null,
     const result = await sock.sendMessage(jid, { text: fallback || 'Carousel tidak tersedia pada koneksi ini.' }, quoted ? { quoted } : {});
     return { ...result, interactiveFallback: true, fallbackReason: error?.message || 'carousel-unavailable' };
   }
+}
+
+
+/** Legacy hydrated-template button payload for compatibility-only deployments. */
+export function buildTemplateButtonsPayload({ text = '', footer = '', buttons = [], headerMessage = null } = {}) {
+  if (!Array.isArray(buttons) || buttons.length < 1 || buttons.length > 3) throw new RangeError('Template Buttons memerlukan 1–3 tombol.');
+  const hydratedButtons = buttons.map((button, index) => {
+    const label = cleanText(button.title || button.display_text || button.label, `template button ${index + 1}`, 25, true);
+    const type = String(button.type || 'quick_reply').toLowerCase();
+    if (type === 'quick_reply') {
+      return { quickReplyButton: { displayText: label, id: cleanText(button.id, 'quick reply id', 120, true) } };
+    }
+    if (type === 'cta_url' || type === 'webview_url' || type === 'open_webview') {
+      const url = httpsUrl(button.url || button.link, 'Template URL');
+      return { urlButton: { displayText: label, url } };
+    }
+    if (type === 'cta_call') {
+      const phoneNumber = cleanText(button.phone || button.phone_number, 'template phone', 20, true).replace(/[\s()-]/g, '');
+      if (!/^\+?[1-9]\d{6,14}$/.test(phoneNumber)) throw new TypeError('Nomor template call harus format internasional.');
+      return { callButton: { displayText: label, phoneNumber } };
+    }
+    throw new TypeError(`Template Buttons tidak mendukung jenis ${type}; gunakan Native Flow.`);
+  });
+  return {
+    templateMessage: {
+      hydratedTemplate: {
+        hydratedContentText: cleanText(text, 'template text', 3000, true),
+        ...(footer ? { hydratedFooterText: cleanText(footer, 'template footer', 200) } : {}),
+        ...(headerMessage ? { ...headerMessage } : {}),
+        hydratedButtons
+      }
+    }
+  };
+}
+
+export async function sendTemplateButtons(sock, jid, options = {}, quoted = null) {
+  const payload = buildTemplateButtonsPayload(options);
+  if (typeof sock?.sendMessage !== 'function') throw new TypeError('Socket tidak menyediakan sendMessage.');
+  return sock.sendMessage(jid, payload, quoted ? { quoted } : {});
+}
+
+export async function sendRichCard(sock, jid, options = {}, quoted = null, dependencies = {}) {
+  return sendNativeFlow(sock, jid, {
+    ...options,
+    title: options.title || 'Informasi',
+    footer: options.footer || 'WHISKAY',
+    buttons: Array.isArray(options.buttons) ? options.buttons : []
+  }, quoted, dependencies);
+}
+
+export async function sendPollMessage(sock, jid, { name, values, selectableCount = 1 } = {}, quoted = null) {
+  const question = cleanText(name, 'poll question', 255, true);
+  if (!Array.isArray(values) || values.length < 2 || values.length > 12) throw new RangeError('Poll memerlukan 2–12 opsi.');
+  const choices = values.map((value, index) => cleanText(value, `poll option ${index + 1}`, 100, true));
+  if (new Set(choices.map(value => value.toLowerCase())).size !== choices.length) throw new TypeError('Opsi polling tidak boleh duplikat.');
+  const count = Number(selectableCount);
+  if (!Number.isInteger(count) || count < 0 || count > choices.length) throw new RangeError('selectableCount harus 0 (multi-select) sampai jumlah opsi.');
+  if (typeof sock?.sendMessage !== 'function') throw new TypeError('Socket tidak menyediakan sendMessage.');
+  return sock.sendMessage(jid, { poll: { name: question, values: choices, selectableCount: count } }, quoted ? { quoted } : {});
 }
 
 export function extractInteractiveResponseId(message = {}) {
@@ -248,7 +370,8 @@ export function extractInteractiveResponseId(message = {}) {
     if (typeof buttonId === 'string' && buttonId.length <= 160) return buttonId;
     const wrapper = content.ephemeralMessage?.message || content.viewOnceMessage?.message ||
       content.viewOnceMessageV2?.message || content.viewOnceMessageV2Extension?.message ||
-      content.documentWithCaptionMessage?.message || content.editedMessage?.message ||
+      content.documentWithCaptionMessage?.message || content.deviceSentMessage?.message ||
+      content.associatedChildMessage?.message || content.editedMessage?.message ||
       content.protocolMessage?.editedMessage;
     if (wrapper) { content = wrapper; continue; }
     break;

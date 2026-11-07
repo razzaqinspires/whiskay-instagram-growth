@@ -23,7 +23,7 @@ const stage = path.join(stageRoot, archiveRootName);
 const include = [
   '.gitignore', '.npmrc', '.env.example', 'README.md',
   'index.mjs', 'package.json', 'requirements-instagram.txt',
-  'config/app.example.json', 'docs', 'python', 'scripts', 'src', 'test',
+  'config/app.example.json', 'docs', 'python', 'scripts', 'src', 'test', 'vendor',
 ];
 const deniedNames = new Set([
   '.git', '.npm', 'node_modules', '.venv-instagram', '__pycache__',
@@ -60,7 +60,7 @@ try {
       if (error.code !== 'ENOENT') throw error;
     }
   }
-  for (const directory of ['auth_ig', 'session/self', 'data']) {
+  for (const directory of ['auth_ig', 'session/self', 'data', 'data/academic-inputs', 'data/remini']) {
     await mkdir(path.join(stage, directory), { recursive: true, mode: 0o700 });
     await writeFile(path.join(stage, directory, '.gitkeep'), '', { mode: 0o644 });
   }
@@ -77,7 +77,7 @@ try {
   const result = spawnSync('zip', ['-qr', output, archiveRootName], { cwd: stageRoot, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(`zip gagal: ${result.stderr || result.stdout || result.status}`);
   console.log(`[RELEASE] ${output}`);
-  console.log('[RELEASE] Included: README.md, docs/, config template, maintained scripts/source/tests.');
+  console.log('[RELEASE] Included: README.md, docs/, config template, maintained scripts/source/tests, and vendor reference files.');
   console.log('[RELEASE] Excluded: .env, config/app.json, sessions, auth_ig credentials, runtime data, databases, archives, node_modules, Python venv, and Git metadata.');
 } finally {
   await rm(stageRoot, { recursive: true, force: true });
