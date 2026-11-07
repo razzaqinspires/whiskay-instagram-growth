@@ -1,0 +1,39 @@
+node_modules/
+.env
+.env.*
+!.env.example
+.npm/
+session/
+auth_ig/
+data/*.json
+data/referral-claims/
+data/*.tmp
+*.log
+coverage/
+.DS_Store
+*.swp
+*.swo
+
+# Local overrides / secrets
+config/local.json
+.env.local
+.env.production
+
+# Machine-specific non-secret application settings
+config/app.json
+*.backup
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm
+data/.permissions-v1
+
+# Local runtime lock and SQLite database sidecars
+data/.whiskay-runtime.lock
+data/*.sqlite-wal
+data/*.sqlite-shm
+data/*.sqlite-journal
+
+# Isolated Instagram Python runtime
+.venv-instagram/
+__pycache__/
+*.pyc

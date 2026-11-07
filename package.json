@@ -1,0 +1,39 @@
+{
+  "name": "whiskay-instagram-growth",
+  "version": "0.10.12",
+  "private": true,
+  "description": "WHISKAY private experimental WhatsApp self-bot with one Instagram session, organic-only growth campaigns, content intelligence, and read-only insights.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0 <23",
+    "npm": ">=10.0.0"
+  },
+  "scripts": {
+    "start": "node --env-file=.env scripts/start.mjs",
+    "start:check": "npm run validate && npm run check && npm run docs:check && npm test && npm start",
+    "validate": "node --env-file=.env scripts/validate-config.mjs",
+    "check": "node scripts/check-source.mjs",
+    "docs:check": "node scripts/check-docs.mjs",
+    "test": "node --test",
+    "test:watch": "node --test --watch",
+    "test:coverage": "node --experimental-test-coverage --test",
+    "test:adapter": "node --test test/concrete-http-adapter.test.mjs",
+    "security:check": "npm audit --omit=dev --audit-level=high",
+    "security:permissions": "node scripts/check-permissions.mjs",
+    "version:check": "node -e \"const p=require('./package.json'); console.log(p.name+'@'+p.version+' | Node '+process.version+' | npm '+process.env.npm_config_user_agent)\"",
+    "qa": "npm run validate && npm run check && npm run docs:check && npm test && npm run security:permissions",
+    "deps:check": "npm ls --depth=0",
+    "config:show": "node --env-file=.env scripts/show-config.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "instagram:doctor": "node scripts/instagram-doctor.mjs",
+    "instagram:login": "node --env-file=.env scripts/instagram-login.mjs",
+    "instagram:profile": "node scripts/instagram-profile.mjs",
+    "package:release": "node scripts/package-release.mjs"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "pino": "9.6.0",
+    "axios": "^1.11.0"
+  },
+  "packageManager": "npm@10.9.2"
+}

@@ -1,0 +1,45 @@
+import { getInstagramStats, recordInstagramStats } from '../instagram.mjs';
+
+export default {
+  name: 'instagram-stats',
+  commands: [
+    {
+      name: 'igstats', aliases: ['igme'], description: 'Lihat snapshot statistik Instagram lokal',
+      async execute({ reply }) {
+        const data = await getInstagramStats();
+        if (!data.current) return reply('Belum ada statistik. Gunakan .igsetstats <followers> <following> <posts>.');
+        await reply([
+          'INSTAGRAM STATS (LOCAL)',
+          `Followers: ${data.current.followers}`,
+          `Following: ${data.current.following}`,
+          `Posts: ${data.current.posts}`,
+          `Snapshot: ${data.snapshots}`,
+          `Waktu: ${data.current.date}`,
+          `Perubahan dari snapshot sebelumnya: ${data.growth === null ? 'belum ada pembanding' : `${data.growth > 0 ? '+' : ''}${data.growth}`}`
+        ].join('\n'));
+      }
+    },
+    {
+      name: 'igsetstats', description: 'Simpan statistik manual: followers following posts',
+      async execute({ args, reply }) {
+        if (args.length !== 3) return reply('Format: .igsetstats <followers> <following> <posts>');
+        const numbers = args.map(value => Number(value));
+        if (numbers.some(value => !Number.isSafeInteger(value) || value < 0)) {
+          return reply('Semua nilai harus bilangan bulat >= 0.');
+        }
+        const result = await recordInstagramStats({
+          followers: numbers[0], following: numbers[1], posts: numbers[2]
+        });
+        await reply(`Snapshot disimpan. Followers: ${result.current.followers}\nPerubahan: ${result.growth === null ? 'belum ada data pembanding' : `${result.growth > 0 ? '+' : ''}${result.growth}`}`);
+      }
+    },
+    {
+      name: 'iggrowth', description: 'Hitung perubahan follower dari dua snapshot terakhir',
+      async execute({ reply }) {
+        const data = await getInstagramStats();
+        if (data.growth === null) return reply('Dibutuhkan minimal dua snapshot. Jalankan .igsetstats lagi pada waktu berikutnya.');
+        await reply(`Pertumbuhan follower: ${data.growth > 0 ? '+' : ''}${data.growth}`);
+      }
+    }
+  ]
+};

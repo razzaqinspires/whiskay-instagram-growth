@@ -1,0 +1,111 @@
+{
+  "app": {
+    "logLevel": "info"
+  },
+  "whatsapp": {
+    "pairingNumber": "",
+    "ownerNumber": "",
+    "sessionDir": "./session/self",
+    "syncFullHistory": false
+  },
+  "commands": {
+    "mode": "self",
+    "runtimeModeFile": "./data/runtime-mode.json",
+    "prefixes": [
+      "!",
+      "."
+    ],
+    "allowGroups": true,
+    "maxMessageChars": 3000,
+    "maxCommandArgs": 24
+  },
+  "plugins": {
+    "directory": "./src/plugins",
+    "hotReload": true,
+    "maxFileBytes": 262144,
+    "maxCommandsPerPlugin": 100
+  },
+  "antiSpam": {
+    "enabled": true,
+    "windowMs": 10000,
+    "maxHits": 5,
+    "cooldownMs": 1500,
+    "commandsPerMinute": 20,
+    "duplicateTtlMs": 60000,
+    "warningCooldownMs": 30000,
+    "maxConcurrent": 2
+  },
+  "instagram": {
+    "username": "",
+    "sessionFile": "./auth_ig/instagrapi-session.json",
+    "statsFile": "./data/instagram-stats.json",
+    "guardFile": "./data/instagram-safety.json",
+    "pythonBin": "./.venv-instagram/bin/python",
+    "platformApi": {
+      "enabled": false,
+      "loginMethod": "instagram_login",
+      "baseUrl": "https://graph.instagram.com",
+      "apiVersion": "",
+      "endpoints": {
+        "me": "/me",
+        "media": "/me/media",
+        "insights": "/me/insights"
+      },
+      "permissions": [
+        "instagram_business_basic",
+        "instagram_business_manage_insights"
+      ],
+      "tokenEnv": "INSTAGRAM_GRAPH_ACCESS_TOKEN",
+      "timeoutMs": 15000
+    },
+    "targeting": {
+      "mode": "manual",
+      "manualUsernames": [],
+      "candidateDirectory": "./data/instagram-approved-creators.json",
+      "automatic": {
+        "enabled": false,
+        "maxCandidates": 25,
+        "niches": [],
+        "locations": [
+          "Indonesia"
+        ],
+        "minFollowers": 100,
+        "maxFollowers": 100000,
+        "minEngagementRatePct": 0
+      },
+      "requireOwnerApproval": true,
+      "allowedActions": [
+        "review",
+        "campaign_link",
+        "collaboration_invite"
+      ]
+    }
+  },
+  "growth": {
+    "databaseFile": "./data/instagram-growth.json"
+  },
+  "identity": {
+    "lidMapFile": "./data/lid-map.json"
+  },
+  "referral": {
+    "enabled": false,
+    "claim": {
+      "endpoint": "https://api-staging.example.test/v1/referrals/claims",
+      "allowedHosts": [
+        "api-staging.example.test"
+      ],
+      "serviceTokenEnv": "REFERRAL_SERVICE_TOKEN",
+      "timeoutMs": 15000,
+      "delayMs": 1000,
+      "maxAttempts": 1
+    },
+    "webhook": {
+      "enabled": false,
+      "host": "127.0.0.1",
+      "port": 8787,
+      "path": "/webhooks/referral/verified",
+      "secretEnv": "REFERRAL_WEBHOOK_SECRET",
+      "autoProcess": false
+    }
+  }
+}
