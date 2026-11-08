@@ -13,8 +13,11 @@ test('multi-prefix parser handles configured prefixes', () => {
   assert.equal(parseCommand('hello', prefixes), null);
 });
 
-test('extracts text from ephemeral and image caption messages', () => {
+test('extracts command text from wrapped image, video, PTV and document captions', () => {
   assert.equal(extractMessageText({ ephemeralMessage: { message: { imageMessage: { caption: '.igpanel' } } } }), '.igpanel');
+  assert.equal(extractMessageText({ videoMessage: { caption: '.remini sharp' } }), '.remini sharp');
+  assert.equal(extractMessageText({ ptvMessage: { caption: '.remini inspect' } }), '.remini inspect');
+  assert.equal(extractMessageText({ documentWithCaptionMessage: { message: { message: { documentMessage: { caption: '.acad help' } } } } }), '.acad help');
 });
 
 test('menu command is parsed with its actual prefix and arguments', () => {
@@ -308,4 +311,120 @@ test('handleMessage routes a native-flow button through owner authorization and 
   assert.equal(handled, true);
   assert.deepEqual(executed, ['igstats']);
   assert.equal(sent[0].payload.text, 'stats opened');
+});
+
+
+test('handleMessage dispatches .remini on attached-video caption and quoted-video reply', async () => {
+  const executions = [];
+  const sock = { user: { id: '6281234567890@s.whatsapp.net' }, sendMessage: async () => ({ key: { id: 'reply' } }) };
+  const pluginLoader = {
+    listCommands: () => [{ name: 'remini', aliases: [], category: 'Media Processing' }],
+    execute: async (name, context) => { executions.push({ name, context }); return { found: true }; }
+  };
+  const common = { lidManager: null, pluginLoader, logger: { info() {}, warn() {}, error() {} }, ownerNumber: '6281234567890', allowGroups: false };
+  const attached = { key: { id: 'CAPTION-VIDEO', fromMe: true, remoteJid: '6289999999999@s.whatsapp.net' }, message: { videoMessage: { mimetype: 'video/mp4', caption: '.remini sharp', fileLength: 1000 } } };
+  assert.equal(await handleMessage(sock, attached, common), true);
+  assert.equal(executions[0].name, 'remini');
+  assert.equal(executions[0].context.messageInfo.media.type, 'video');
+  assert.equal(executions[0].context.args[0], 'sharp');
+
+  const quoted = { key: { id: 'QUOTED-VIDEO', fromMe: true, remoteJid: '6289999999998@s.whatsapp.net' }, message: { extendedTextMessage: { text: '.remini inspect', contextInfo: { quotedMessage: { videoMessage: { mimetype: 'video/mp4', fileName: 'quoted.mp4', fileLength: 1000 } }, stanzaId: 'video-id' } } } };
+  assert.equal(await handleMessage(sock, quoted, common), true);
+  assert.equal(executions[1].context.messageInfo.media, null);
+  assert.equal(executions[1].context.messageInfo.quotedMedia.type, 'video');
+  assert.equal(executions[1].context.messageInfo.quotedMedia.quoted, true);
+});
+
+
+test('main menu emits exactly three Mixed Native Flow buttons and preserves the real reply context', async () => {
+  const relayed = [];
+  let quotedAtGeneration;
+  const baileysMock = {
+    proto: { MessageContextInfo: { create: value => value } },
+    generateMessageIDV2: () => 'MENU-MIXED-GENERATED',
+    generateWAMessageFromContent: (jid, message, options) => { quotedAtGeneration = options.quoted; return { key: { remoteJid: jid, id: 'MENU-MIXED-GENERATED' }, message }; }
+  };
+  const sock = {
+    user: { id: '6281234567890:1@s.whatsapp.net' },
+    sendMessage: async (jid, payload) => { relayed.push({ jid, fallback: payload }); },
+    relayMessage: async (jid, message, options) => relayed.push({ jid, message, options })
+  };
+  const commands = Array.from({ length: 14 }, (_, index) => ({ name: `feature${index + 1}`, category: index % 2 ? 'Core' : 'Media', plugin: 'qa' }));
+  const msg = {
+    key: { id: 'MENU-MIXED-TEST-0001', fromMe: true, remoteJid: '6281234567890@s.whatsapp.net' },
+    pushName: 'Sky',
+    message: { conversation: '.menu' }
+  };
+  const handled = await handleMessage(sock, msg, {
+    lidManager: null,
+    pluginLoader: { listCommands: () => commands },
+    logger: { info() {}, warn() {}, error() {} },
+    ownerNumber: '6281234567890',
+    allowGroups: false,
+    baileys: baileysMock
+  });
+  assert.equal(handled, true);
+  assert.equal(relayed.length, 1);
+  assert.equal(quotedAtGeneration, msg, 'the original inbound WAMessage must be used as the actual quote');
+  const root = relayed[0].message.viewOnceMessage.message;
+  const interactive = root.interactiveMessage;
+  assert.equal(interactive.nativeFlowMessage.buttons.length, 3);
+  const parsed = interactive.nativeFlowMessage.buttons.map(button => ({ name: button.name, params: JSON.parse(button.buttonParamsJson) }));
+  assert.equal(parsed[0].name, 'quick_reply');
+  assert.equal(parsed[0].params.id, 'wsk:cmd:.profile');
+  assert.equal(parsed[1].name, 'cta_url');
+  assert.equal(parsed[1].params.webview_interaction, true);
+  assert.equal(parsed[1].params.url, 'https://whatsapp.com/channel/0029Vb8vHDB5PO0v7xAQL33e');
+  assert.equal(parsed[2].name, 'single_select');
+  assert.equal(parsed[2].params.sections[0].rows.length, 10);
+  assert.match(interactive.body.text, /Halo Sky/);
+  assert.match(interactive.body.text, /COMMAND CATALOG · 14 command aktif/);
+  assert.match(interactive.body.text, /\.feature14/);
+  assert.equal(interactive.contextInfo.externalAdReply.sourceUrl, 'https://whatsapp.com/channel/0029Vb8vHDB5PO0v7xAQL33e');
+  assert.ok(interactive.contextInfo.stanzaId || root.messageContextInfo, 'menu keeps quote context or Baileys message context');
+});
+
+
+test('main menu sends oversized complete command catalog in bounded text chunks', async () => {
+  const relayed = [];
+  const textMessages = [];
+  const baileysMock = {
+    proto: { MessageContextInfo: { create: value => value } },
+    generateMessageIDV2: () => 'MENU-LONG-CATALOG',
+    generateWAMessageFromContent: (jid, message) => ({ key: { remoteJid: jid, id: 'MENU-LONG-CATALOG' }, message })
+  };
+  const sock = {
+    user: { id: '6281234567890@s.whatsapp.net' },
+    sendMessage: async (jid, payload) => { textMessages.push(payload.text); return { key: { id: `text-${textMessages.length}` } }; },
+    relayMessage: async (jid, message, options) => relayed.push({ jid, message, options })
+  };
+  const commands = Array.from({ length: 45 }, (_, index) => ({
+    name: `longfeature${index + 1}`,
+    aliases: [`lf${index + 1}`],
+    category: index % 3 ? 'Core' : 'Media',
+    usage: '<value>',
+    description: `Long description ${index + 1} · ${'additional metadata '.repeat(5)}`,
+    plugin: 'qa'
+  }));
+  const msg = {
+    key: { id: 'MENU-LONG-CATALOG-TEST', fromMe: true, remoteJid: '6281111111111@s.whatsapp.net' },
+    pushName: 'Sky',
+    message: { conversation: '.menu' }
+  };
+  const handled = await handleMessage(sock, msg, {
+    lidManager: null,
+    pluginLoader: { listCommands: () => commands },
+    logger: { info() {}, warn() {}, error() {} },
+    ownerNumber: '6281234567890',
+    allowGroups: false,
+    baileys: baileysMock
+  });
+  assert.equal(handled, true);
+  assert.equal(relayed.length, 1, 'the mixed Native Flow menu is still sent once');
+  assert.ok(textMessages.length > 1, 'the full catalogue is split into follow-up text messages');
+  assert.ok(textMessages.every(value => value.length <= 3600));
+  const joined = textMessages.join('\n');
+  assert.match(joined, /longfeature1/);
+  assert.match(joined, /longfeature45/);
+  assert.match(joined, /alias: \.lf45/);
 });

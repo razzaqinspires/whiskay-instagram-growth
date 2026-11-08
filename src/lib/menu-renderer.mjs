@@ -66,3 +66,61 @@ export function renderCommandMenu(commands = [], { prefix = '.', prefixes = ['!'
   lines.push('', `Gunakan ${prefix}plugins untuk melihat plugin aktif.`);
   return lines.join('\n');
 }
+
+/** Render the complete live command catalogue for the main menu.
+ * Aliases, usage and descriptions are included without mixing recommendation
+ * ranking into the canonical command directory.
+ */
+export function renderCommandCatalog(commands = [], { prefix = '.' } = {}) {
+  const valid = (Array.isArray(commands) ? commands : [])
+    .filter(item => item && typeof item.name === 'string')
+    .map(item => ({
+      ...item,
+      category: String(item.category || 'General').trim() || 'General',
+      aliases: Array.isArray(item.aliases) ? item.aliases.map(value => String(value || '').trim()).filter(Boolean) : [],
+      usage: String(item.usage || '').trim(),
+      description: String(item.description || '').trim()
+    }))
+    .sort((a, b) =>
+      a.category.localeCompare(b.category, 'en', { sensitivity: 'base' }) ||
+      a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })
+    );
+
+  if (!valid.length) return 'WHISKAY COMMAND CATALOG · 0 command\nBelum ada command aktif.';
+
+  const groups = groupCommands(valid);
+  const lines = [`WHISKAY COMMAND CATALOG · ${valid.length} command aktif`];
+  for (const [category, entries] of groups) {
+    lines.push('', `「 ${category} 」`);
+    for (const item of entries) {
+      const invocation = `${prefix}${item.name}${item.usage ? ` ${item.usage}` : ''}`;
+      const aliases = item.aliases.length ? ` [alias: ${item.aliases.map(alias => `${prefix}${alias}`).join(', ')}]` : '';
+      lines.push(`${invocation}${aliases}${item.description ? ` — ${item.description}` : ''}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+/** Split a long text catalogue on line boundaries for regular WhatsApp messages. */
+export function chunkCommandCatalog(text, maxChars = 3500) {
+  const limit = Math.max(256, Math.min(3800, Math.floor(Number(maxChars) || 3500)));
+  const chunks = [];
+  let current = '';
+  for (const rawLine of String(text || '').split('\n')) {
+    let line = rawLine;
+    while (line.length > limit) {
+      if (current) { chunks.push(current); current = ''; }
+      chunks.push(line.slice(0, limit));
+      line = line.slice(limit);
+    }
+    const candidate = current ? `${current}\n${line}` : line;
+    if (candidate.length > limit && current) {
+      chunks.push(current);
+      current = line;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}

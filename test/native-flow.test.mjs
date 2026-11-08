@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildCarouselCards,
+  buildAIRichResponseContent,
+  buildLegacyButtonsContent,
   buildNativeFlowTextFallback,
   buildTemplateButtonsPayload,
   commandActionId,
@@ -10,6 +12,8 @@ import {
   extractInteractiveResponseId,
   normalizeNativeButtons,
   sendNativeCarousel,
+  sendLegacyButtons,
+  sendTemplateButtons,
   sendNativeFlow,
   sendPollMessage
 } from '../src/lib/native-flow.mjs';
@@ -112,6 +116,11 @@ test('sendNativeCarousel relays a carousel and falls back to text on invalid con
   }, null, { baileys: baileysMock });
   assert.equal(relayed.length, 1);
   assert.equal(relayed[0].message.interactiveMessage.carouselMessage.cards.length, 2);
+  assert.deepEqual(relayed[0].message.interactiveMessage.contextInfo.mentionedJid, []);
+  assert.equal(relayed[0].message.interactiveMessage.carouselMessage.carouselCardType, 1);
+  assert.equal(Boolean(relayed[0].message.viewOnceMessage), false, 'carousel must not be wrapped in view-once by default');
+  assert.ok(relayed[0].options.additionalNodes.some(node => node.tag === 'bot'), 'carousel includes private-chat bot node');
+  assert.ok(relayed[0].options.additionalNodes.find(node => node.tag === 'biz')?.content.some(node => node.tag === 'quality_control'));
   const fallback = await sendNativeCarousel(sock, '6281234567890@s.whatsapp.net', { title: 'Bad', cards: [] }, null, { baileys: baileysMock });
   assert.equal(fallback.interactiveFallback, true);
   assert.equal(sent.length, 1);
@@ -226,4 +235,73 @@ test('rejects secret-bearing CTA Copy even when Native Flow is called directly',
   assert.throws(() => normalizeNativeButtons([
     { type: 'cta_copy', title: 'Copy', id: 'copy', copy_code: 'API_KEY=private-value' }
   ]), /rahasia/);
+});
+
+
+test('sends hydrated Template Buttons through raw proto relay instead of sendMessage media detection', async () => {
+  const relayed = [];
+  const sock = {
+    user: { id: '6281234567890@s.whatsapp.net' },
+    relayMessage: async (...args) => relayed.push(args),
+    sendMessage: async () => { throw new Error('sendMessage must not parse templateMessage as media'); }
+  };
+  const result = await sendTemplateButtons(sock, '6281234567890@s.whatsapp.net', {
+    text: 'Template legacy', buttons: [{ type: 'quick_reply', title: 'Menu', id: 'wsk:cmd:.menu' }]
+  }, null, { baileys: baileysMock });
+  assert.equal(result.transport, 'Hydrated Template Buttons');
+  assert.equal(relayed.length, 1);
+  assert.ok(relayed[0][1].templateMessage.hydratedTemplate.hydratedButtons.length === 1);
+});
+
+test('builds a genuine generic AIRichResponse shape without impersonation metadata', () => {
+  const content = buildAIRichResponseContent({ title: 'WHISKAY Code', code: 'const x = 1;', language: 'javascript' });
+  const rich = content.botForwardedMessage.message.richResponseMessage;
+  assert.equal(rich.messageType, 1);
+  assert.equal(rich.submessages[0].messageType, 2);
+  assert.equal(rich.submessages[1].messageType, 5);
+  assert.ok(rich.unifiedResponse.data.length > 10);
+  const unified = JSON.parse(Buffer.from(rich.unifiedResponse.data, 'base64').toString('utf8'));
+  assert.ok(unified.sections.every(section => section.__typename === 'GenAIUnifiedResponseSection'));
+  assert.ok(content.messageContextInfo.botMetadata.capabilityMetadata.capabilities.includes(8));
+  assert.ok(content.messageContextInfo.botMetadata.capabilityMetadata.capabilities.includes(7));
+  assert.equal(content.messageContextInfo.botMetadata.messageDisclaimerText, 'WHISKAY · Structured response');
+  assert.equal(rich.contextInfo.forwardingScore, 0);
+  assert.equal(rich.contextInfo.forwardedAiBotMessageInfo, undefined);
+});
+
+test('builds an AIRich HTML embedded screen with valid nested tab sections and optional trusted source', () => {
+  const html = '<!doctype html><html><body><h1>WHISKAY</h1></body></html>';
+  const content = buildAIRichResponseContent({ title: 'HTML demo', text: 'Open preview', html, htmlTitle: 'Preview', trustedSources: ['razzaq.example'], forwardedContext: true });
+  const rich = content.botForwardedMessage.message.richResponseMessage;
+  const unified = JSON.parse(Buffer.from(rich.unifiedResponse.data, 'base64').toString('utf8'));
+  const screen = unified.embedded_screens[0];
+  const tab = screen.content[0].tabs[0];
+  const primitive = tab.sections[0].view_model.primitive;
+  assert.equal(primitive.__typename, 'GenAIaeacdsnwHtmlPrimitive');
+  assert.equal(primitive.payload, html);
+  assert.deepEqual(primitive.trusted_sources, ['razzaq.example']);
+  assert.equal(rich.contextInfo.isForwarded, true);
+  assert.equal(rich.contextInfo.forwardedAiBotMessageInfo, undefined);
+  assert.ok(content.messageContextInfo.botMetadata.capabilityMetadata.capabilities.includes(34));
+  assert.throws(() => buildAIRichResponseContent({ html: '<div>safe</div>', trustedSources: ['https://not-a-domain'] }), /trusted_sources/);
+});
+
+test('builds a separate legacy ButtonsMessage transport with response-only buttons', () => {
+  const content = buildLegacyButtonsContent({ text: 'Legacy choices', buttons: [
+    { type: 'quick_reply', title: 'Menu', id: 'wsk:cmd:.menu' },
+    { type: 'quick_reply', title: 'Plugins', id: 'wsk:cmd:.plugins' }
+  ] });
+  assert.equal(content.buttonsMessage.buttons.length, 2);
+  assert.equal(content.buttonsMessage.buttons[0].type, 1);
+  assert.equal(content.buttonsMessage.buttons[0].buttonId, 'wsk:cmd:.menu');
+  assert.throws(() => buildLegacyButtonsContent({ text: 'bad', buttons: [{ type: 'cta_url', title: 'Go', url: 'https://example.com' }] }), /hanya mendukung quick_reply/);
+});
+
+test('sends legacy ButtonsMessage through generateWAMessageFromContent and relayMessage', async () => {
+  const relayed = [];
+  const sock = { user: { id: '6281234567890@s.whatsapp.net' }, relayMessage: async (...args) => relayed.push(args) };
+  const result = await sendLegacyButtons(sock, '6281234567890@s.whatsapp.net', { text: 'Choose', buttons: [{ type: 'quick_reply', title: 'Menu', id: 'wsk:cmd:.menu' }] }, null, { baileys: baileysMock });
+  assert.equal(result.transport, 'Legacy ButtonsMessage');
+  assert.equal(relayed.length, 1);
+  assert.ok(relayed[0][1].buttonsMessage);
 });

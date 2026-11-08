@@ -47,7 +47,7 @@ Format: prefix + command + (args ? " " + args : "")
 「 Instagram Account 」
 .igcheck — Periksa Python adapter, versi instagrapi, dan session
 .iglogin — Login pertama secara eksplisit
-.igprofile — Baca profil dari session Instagram (read-only)
+.profile — Baca profil dari session Instagram (read-only)
 .igsetstats <followers> <following> <posts> — Simpan statistik manual
 .igsync — Sinkronkan statistik profil dari session read-only
 

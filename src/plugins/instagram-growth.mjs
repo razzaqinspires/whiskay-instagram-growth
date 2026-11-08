@@ -152,7 +152,7 @@ export default {
       }
     },
     {
-      name: 'igprofile', aliases: ['igme'], category: 'Instagram Account', usage: '', description: 'Baca profil akun dari session Instagram (read-only)',
+      name: 'igprofile', aliases: ['igme', 'profile'], category: 'Instagram Account', usage: '', description: 'Baca profil akun dari session Instagram (read-only)',
       async execute({ reply }) {
         try {
           const profile = await getConnectedInstagramProfile();
@@ -209,8 +209,24 @@ export default {
     },
     {
       name: 'igcampaign', aliases: ['igcamp'], category: 'Growth Campaigns', usage: '<create|list|progress|goal|checkpoint|insights|pause|resume|complete|cancel> ...', description: 'Kelola campaign organik pada satu akun Instagram aktif dan analisis progresnya',
-      async execute({ args, rawArgs, reply }) {
+      async execute({ args, rawArgs, reply, sendInteractive }) {
         const [action, ...rest] = args;
+        if (!action || action === 'help') {
+          const rows = [
+            ['create', 'Buat campaign baru', 'Nama campaign diambil dari session aktif'],
+            ['list', 'Lihat campaign', 'Pilih campaign dari akun session'],
+            ['progress', 'Laporan progres', 'Meminta ID campaign'],
+            ['goal', 'Atur target follower', 'ID, target, dan deadline'],
+            ['checkpoint', 'Simpan checkpoint', 'Sinkronisasi profil aktif'],
+            ['insights', 'Catat Instagram Insights', 'Reach, impressions, visits, follows'],
+            ['pause', 'Jeda campaign', 'Meminta ID campaign'],
+            ['resume', 'Lanjutkan campaign', 'Meminta ID campaign'],
+            ['complete', 'Selesaikan campaign', 'Meminta ID campaign'],
+            ['cancel', 'Batalkan campaign', 'Meminta ID campaign']
+          ].map(([command, title, description]) => ({ title, description, id: commandActionId(`.igcampaign ${command}`) }));
+          if (typeof sendInteractive === 'function') return sendInteractive({ title: 'WHISKAY · ORGANIC CAMPAIGNS', body: 'Pilih operasi campaign. Semua campaign terikat ke satu session Instagram aktif; angka Insights dimasukkan manual.', footer: 'Organic-only · Session-bound', buttons: [{ type: 'single_select', title: 'Campaign operations', sections: [{ title: 'Campaign tools', rows }] }] });
+          return reply(['Perintah campaign:', ...rows.map(row => `${row.title}: ${row.id.replace('wsk:cmd:', '')}`)].join('\n'));
+        }
         if (action === 'create') {
           const name = rawArgs.slice('create'.length).trim();
           if (!name || name.includes('|')) {
@@ -263,12 +279,15 @@ export default {
         if (action === 'list') {
           const identity = await getActiveSessionIdentity();
           const campaigns = (await getCampaigns()).filter(c => c.accountUsername === identity.username);
-          return reply(campaigns.length ? [`━━ CAMPAIGNS · @${identity.username} ━━`, ...campaigns.slice(0, 20).map(c => {
+          if (!campaigns.length) return reply('Belum ada campaign. Gunakan tombol campaign create atau .igcampaign create <nama>.');
+          const visible = campaigns.slice(0, 20);
+          const rows = visible.map(c => {
             const report = buildCampaignProgress(c);
-            const growth = report.followerDelta === null ? 'belum ada baseline' : `${report.followerDelta > 0 ? '+' : ''}${report.followerDelta} follower`;
-            const goal = report.followerGoal ? `\nGoal: ${report.followerGoal.currentFollowers}/${report.followerGoal.targetFollowers} | ${report.followerGoal.status}` : '';
-            return `${c.id} | ${c.status}\n${c.name} (@${c.accountUsername || 'unbound'})\n${growth} | checkpoint: ${report.checkpoints}${goal}`;
-          })].join('\n\n') : 'Belum ada campaign.');
+            const growth = report.followerDelta === null ? 'Belum ada baseline' : `${report.followerDelta > 0 ? '+' : ''}${report.followerDelta} follower`;
+            return { title: `${c.name} · ${c.status}`.slice(0, 80), description: `${c.id} · ${growth} · ${report.checkpoints} checkpoint`.slice(0, 120), id: commandActionId(`.igcampaign progress ${c.id}`) };
+          });
+          if (typeof sendInteractive === 'function') return sendInteractive({ title: `CAMPAIGNS · @${identity.username}`, body: `Pilih campaign untuk melihat progres. Menampilkan ${visible.length} dari ${campaigns.length}.`, footer: 'Session-bound · Organic only', buttons: [{ type: 'single_select', title: 'Pilih campaign', sections: [{ title: 'Campaign aktif & riwayat', rows }] }] });
+          return reply(['━━ CAMPAIGNS ━━', ...rows.map(row => `${row.title}\n${row.description}`)].join('\n\n'));
         }
         if (action === 'progress' || action === 'show') {
           if (!rest[0]) return reply('Format: .igcampaign progress <ID>');

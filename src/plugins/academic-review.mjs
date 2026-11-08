@@ -1,3 +1,4 @@
+import { commandActionId } from '../lib/native-flow.mjs';
 import {
   apiKeyFromEnv, countWords, deleteCheck, downloadReport, formatCheck,
   getCheck, listChecks, productsForMode, submitCheck, MAX_FILE_BYTES
@@ -54,10 +55,25 @@ export default {
     name: 'acad', aliases: ['acx', 'academix'], category: 'Academi.cx Document Review',
     usage: '[ai|similarity|full] CONFIRM <teks|file> | status|report|list|delete|info|help',
     description: 'Pemeriksaan AI-writing dan similarity dokumen melalui API Academi.cx',
-    async execute({ rawArgs = '', args = [], reply, sock, key, msg }) {
+    async execute({ rawArgs = '', args = [], reply, sendInteractive, sock, key, msg }) {
       const raw = String(rawArgs || '').trim();
       const lower = raw.toLowerCase();
-      if (!raw || ['help', '-h', '--help'].includes(lower)) return reply(HELP);
+      const showHelp = async () => {
+        if (typeof sendInteractive !== 'function') return reply(HELP);
+        return sendInteractive({
+          title: 'ACADEMI.CX · DOCUMENT REVIEW',
+          body: 'Pilih tindakan. Pengiriman dokumen hanya dilakukan dengan kata CONFIRM dan dapat menimbulkan biaya pada akun API eksternal. Gunakan dokumen yang kamu miliki atau berwenang periksa.',
+          footer: 'Privacy-aware · Owner only',
+          buttons: [{ type: 'single_select', title: 'Review actions', sections: [{ title: 'Informasi & pemeriksaan', rows: [
+            { title: 'Info & privasi', description: 'Status API, batas, dan penyimpanan', id: commandActionId('.acad info') },
+            { title: 'Riwayat pemeriksaan', description: 'Daftar check yang telah dibuat', id: commandActionId('.acad list') },
+            { title: 'AI-writing review', description: 'Format submit: .acad ai CONFIRM <teks|file>', id: commandActionId('.acad ai') },
+            { title: 'Similarity review', description: 'Format submit: .acad similarity CONFIRM <teks|file>', id: commandActionId('.acad similarity') },
+            { title: 'Full review', description: 'AI + similarity; tetap perlu CONFIRM', id: commandActionId('.acad full') }
+          ] }] }]
+        });
+      };
+      if (!raw || ['help', '-h', '--help'].includes(lower)) return showHelp();
       if (!config.academix.enabled) return reply('Integrasi Academi.cx dinonaktifkan pada config/app.json.');
       const first = String(args[0] || '').toLowerCase();
 
@@ -126,14 +142,14 @@ export default {
       }
       const mode = String(submitMatch[1] || 'full').toLowerCase();
       const input = unquote(submitMatch[2]);
-      if (!input) return reply(HELP);
+      if (!input) return showHelp();
       if (!apiKeyFromEnv()) return reply('API key belum diatur. Tambahkan ACADEMICX_KEY=... pada .env, lalu restart WHISKAY. Jangan kirim API key melalui chat.');
 
       try {
         const products = productsForMode(mode);
         const submitted = await submitCheck(input, products);
         const submittedWords = submitted.submittedWords ?? (typeof submitted.words === 'number' ? submitted.words : countWords(input));
-        return reply([
+        const receipt = [
           'Pemeriksaan berhasil dikirim ke Academi.cx.',
           `Mode: ${mode.toUpperCase()}`,
           `Check ID: ${submitted?.id || '(ID tidak dikembalikan)'}`,
@@ -143,7 +159,12 @@ export default {
           `Periksa hasil: .acad status ${submitted?.id || '<check_id>'}`,
           `Unduh report: .acad report ${submitted?.id || '<check_id>'} similarity`,
           'WHISKAY mengirim dokumen apa adanya dan tidak mengubah isi atau hasil deteksi.'
-        ].join('\n'));
+        ].join('\n');
+        if (submitted?.id && typeof sendInteractive === 'function') {
+          await reply(receipt);
+          return sendInteractive({ title: 'ACADEMI.CX · NEXT ACTION', body: 'Pemeriksaan telah dibuat. Pilih status atau unduh report setelah tersedia.', footer: `Check ${submitted.id}`, buttons: [{ type: 'quick_reply', title: 'Status', id: commandActionId(`.acad status ${submitted.id}`) }, { type: 'quick_reply', title: 'Report', id: commandActionId(`.acad report ${submitted.id} similarity`) }, { type: 'quick_reply', title: 'Riwayat', id: commandActionId('.acad list') }] });
+        }
+        return reply(receipt);
       } catch (error) {
         return reply(`Academic review gagal: ${errorText(error)}\nKetik .acad help untuk panduan.`);
       }

@@ -89,6 +89,8 @@ test('real plugin set registers Instagram and verified-referral commands', async
     const names = new Set(loader.listCommands().map(item => item.name));
     assert.equal(names.has('igpanel'), true);
     assert.equal(names.has('igprofile'), true);
+    const instagramProfile = loader.listCommands().find(item => item.name === 'igprofile');
+    assert.ok(instagramProfile.aliases.includes('profile'), 'the menu Profile action must resolve to the active Instagram profile command');
     assert.equal(names.has('igcheck'), true);
     assert.equal(names.has('iglogin'), true);
     assert.equal(names.has('igsync'), true);
@@ -100,10 +102,13 @@ test('real plugin set registers Instagram and verified-referral commands', async
     assert.equal(names.has('referralstatus'), true);
     assert.equal(names.has('referralprocess'), true);
     assert.equal(names.has('acad'), true);
+    assert.equal(names.has('hotreload'), true);
     assert.equal(names.has('remini'), true);
+    assert.equal(names.has('igdl'), true);
     assert.equal(names.has('poll'), true);
     assert.equal(names.has('mediainfo'), true);
     assert.equal(names.has('waform'), true);
+    assert.equal(names.has('ytmusic'), true);
     assert.equal(names.has('wacapabilities'), true);
   } finally {
     loader.close();
@@ -123,4 +128,103 @@ test('closing plugin loader during startup prevents a watcher from being install
     loader.close();
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+
+test('dependency-aware watcher reloads a library imported by a plugin', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'whiskay-plugin-deps-'));
+  const sourceRoot = path.join(root, 'src');
+  const pluginDir = path.join(sourceRoot, 'plugins');
+  const libDir = path.join(sourceRoot, 'lib');
+  const logLines = [];
+  const logger = { info(message) { logLines.push(message); }, warn(message) { logLines.push(message); }, error(message) { logLines.push(message); } };
+  const loader = new PluginLoader({ directory: pluginDir, sourceRoot, runtimeDirectory: path.join(root, '.runtime', 'hot'), logger });
+  const waitFor = async predicate => {
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (await predicate()) return true;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return false;
+  };
+  try {
+    await mkdir(pluginDir, { recursive: true });
+    await mkdir(libDir, { recursive: true });
+    await writeFile(path.join(libDir, 'value.mjs'), `export const currentValue = 'library-one';\n`);
+    await writeFile(path.join(pluginDir, 'demo.mjs'), `import { currentValue } from '../lib/value.mjs';\nexport default { name: 'demo', commands: [{ name: 'libraryvalue', execute: async ({ reply }) => reply(currentValue) }] };\n`);
+    await loader.start({ watchFiles: true });
+    assert.equal(loader.status().mode, 'dependency-aware-source-snapshot');
+    assert.equal(loader.status().plugins, 1);
+    assert.ok(loader.status().watchedDirectories >= 2);
+    const replies = [];
+    await loader.execute('libraryvalue', { reply: async value => replies.push(value) });
+    assert.equal(replies.at(-1), 'library-one');
+
+    await writeFile(path.join(libDir, 'value.mjs'), `export const currentValue = 'library-two';\n`);
+    assert.equal(await waitFor(async () => {
+      const seen = [];
+      await loader.execute('libraryvalue', { reply: async value => seen.push(value) });
+      return seen[0] === 'library-two';
+    }), true, 'library edit should reload plugin dependency graph');
+    assert.equal(logLines.some(line => String(line).includes('source snapshot') && String(line).includes('value.mjs')), true);
+  } finally {
+    loader.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('dependency-aware watcher retries a plugin when a missing library file is added', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'whiskay-plugin-missing-dep-'));
+  const sourceRoot = path.join(root, 'src');
+  const pluginDir = path.join(sourceRoot, 'plugins');
+  const libDir = path.join(sourceRoot, 'academic');
+  const logLines = [];
+  const logger = { info(message) { logLines.push(message); }, warn(message) { logLines.push(message); }, error(message) { logLines.push(message); } };
+  const loader = new PluginLoader({ directory: pluginDir, sourceRoot, runtimeDirectory: path.join(root, '.runtime', 'hot'), logger });
+  const waitFor = async predicate => {
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (await predicate()) return true;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return false;
+  };
+  try {
+    await mkdir(pluginDir, { recursive: true });
+    await mkdir(libDir, { recursive: true });
+    await writeFile(path.join(pluginDir, 'academic.mjs'), `import { libraryReady } from '../academic/client.mjs';\nexport default { name: 'academic-test', commands: [{ name: 'academicready', execute: async ({ reply }) => reply(libraryReady) }] };\n`);
+    await loader.start({ watchFiles: true });
+    assert.equal((await loader.execute('academicready', {})).found, false);
+
+    await writeFile(path.join(libDir, 'client.mjs'), `export const libraryReady = 'dependency-present';\n`);
+    assert.equal(await waitFor(async () => {
+      const seen = [];
+      await loader.execute('academicready', { reply: async value => seen.push(value) });
+      return seen[0] === 'dependency-present';
+    }), true, 'adding the previously missing library should retry and load its plugin');
+    assert.equal(logLines.some(line => String(line).includes('gagal memuat academic.mjs')), true);
+    assert.equal(logLines.some(line => String(line).includes('loaded academic-test')), true);
+  } finally {
+    loader.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test('plugin registry exposes every loaded command for button-directory pagination', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'whiskay-plugin-section-cap-'));
+  const runtime = await mkdtemp(path.join(os.tmpdir(), 'whiskay-plugin-section-runtime-'));
+  const dir = path.join(root, 'plugins');
+  const logger = { info() {}, warn() {}, error() {} };
+  const loader = new PluginLoader({ directory: dir, sourceRoot: root, runtimeDirectory: runtime, logger });
+  try {
+    await mkdir(dir, { recursive: true });
+    const commands = Array.from({ length: 36 }, (_, i) => `{ name: 'command${i + 1}', category: 'Category ${i + 1}', description: 'Description ${i + 1}', execute: async () => {} }`).join(',');
+    await writeFile(path.join(dir, 'many.mjs'), `export default { name: 'many', commands: [${commands}] };`);
+    await loader.start({ watchFiles: false });
+    const list = loader.listCommands();
+    assert.equal(list.length, 36);
+    const rows = list.map(item => item.name);
+    assert.equal(new Set(rows).size, 36);
+  } finally { loader.close(); await Promise.all([rm(root, { recursive: true, force: true }), rm(runtime, { recursive: true, force: true })]); }
 });

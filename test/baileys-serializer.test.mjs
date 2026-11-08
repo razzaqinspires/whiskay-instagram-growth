@@ -69,3 +69,37 @@ test('exposes only decrypted poll update payloads as poll events', () => {
   assert.equal(encrypted.isPollUpdate, false);
   assert.equal(encrypted.pollUpdate, null);
 });
+
+test('finds video captions through nested wrappers and interactive media containers', () => {
+  const raw = {
+    key: { remoteJid: '6280000000000@s.whatsapp.net', fromMe: true },
+    message: {
+      ephemeralMessage: { message: {
+        viewOnceMessageV2Extension: { message: {
+          interactiveMessage: { header: { videoMessage: { mimetype: 'video/mp4', caption: '.remini inspect', fileLength: 4096 } } }
+        } }
+      } }
+    }
+  };
+  const inspected = inspectIncomingMessage(raw);
+  assert.equal(inspected.media.type, 'video');
+  assert.equal(inspected.text, '.remini inspect');
+  assert.equal(inspected.media.viewOnce, true);
+});
+
+test('resolves quoted video through wrapped quotedMessage and keeps video downloader type', async () => {
+  const raw = {
+    key: { id: 'command-1', remoteJid: '6280000000000@s.whatsapp.net', fromMe: true },
+    message: { extendedTextMessage: { text: '.remini enhance sharp', contextInfo: {
+      stanzaId: 'quoted-1',
+      quotedMessage: { viewOnceMessageV2: { message: { ptvMessage: { mimetype: 'video/mp4', fileLength: 1200, seconds: 4 } } } }
+    } } }
+  };
+  const inspected = inspectIncomingMessage(raw);
+  assert.equal(inspected.text, '.remini enhance sharp');
+  assert.equal(inspected.quotedMedia.type, 'video');
+  assert.equal(inspected.quotedMedia.messageType, 'ptvMessage');
+  const mock = { downloadContentFromMessage: async function* (payload, type) { assert.equal(type, 'video'); yield Buffer.from([9, 8, 7]); } };
+  const result = await downloadMediaPayload(inspected.quotedMedia, { baileys: mock });
+  assert.deepEqual([...result], [9, 8, 7]);
+});

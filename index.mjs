@@ -1,3 +1,4 @@
+import path from 'node:path';
 process.umask(0o077); // Create new session/state files as owner-only by default.
 import { connectWA, closeWA } from './src/wa.mjs';
 import { handleMessage, runtimeModeStore } from './src/commands.mjs';
@@ -64,7 +65,10 @@ async function main() {
     referralWebhookServer = await startReferralWebhookServer();
   }
 
-  pluginLoader = new PluginLoader({ directory: config.plugins.directory });
+  pluginLoader = new PluginLoader({
+    directory: config.plugins.directory,
+    sourceRoot: path.dirname(config.plugins.directory),
+  });
   await pluginLoader.start({ watchFiles: config.plugins.hotReload });
   if (stopping) {
     pluginLoader.close();

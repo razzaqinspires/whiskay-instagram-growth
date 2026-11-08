@@ -1,5 +1,5 @@
 import { normalizeUserJid } from './lib/lid-manager.mjs';
-import { renderCommandMenu } from './lib/menu-renderer.mjs';
+import { renderCommandMenu, renderCommandCatalog, chunkCommandCatalog } from './lib/menu-renderer.mjs';
 import { AntiSpamGuard } from './security/anti-spam.mjs';
 import { sanitizeError } from './security/redact.mjs';
 import { config } from './config.mjs';
@@ -9,6 +9,8 @@ import { inspectIncomingMessage, downloadMediaPayload, describeMessageMedia, unw
 import { rememberPollCreationMessage } from './lib/poll-store.mjs';
 import { createRuntimeModeStore } from './lib/runtime-mode.mjs';
 import { commandActionId } from './lib/native-flow.mjs';
+import { commandUsageStore } from './lib/command-recommender.mjs';
+import { readFile } from 'node:fs/promises';
 
 export const runtimeModeStore = createRuntimeModeStore({
   filePath: config.commands.runtimeModeFile,
@@ -68,11 +70,19 @@ export function extractMessageText(message = {}) {
   const interactiveCommand = extractCommandFromInteractiveResponse(message);
   if (interactiveCommand) return interactiveCommand;
   const content = unwrapMessageContent(message);
-  if (content.conversation) return String(content.conversation);
-  if (content.extendedTextMessage?.text) return String(content.extendedTextMessage.text);
-  const media = describeMessageMedia(content);
-  if (media?.caption) return media.caption;
-  return '';
+  const media = describeMessageMedia(message);
+  const candidates = [
+    content?.conversation,
+    content?.extendedTextMessage?.text,
+    content?.imageMessage?.caption,
+    content?.videoMessage?.caption,
+    content?.ptvMessage?.caption,
+    content?.documentMessage?.caption,
+    content?.audioMessage?.caption,
+    media?.caption
+  ];
+  const text = candidates.find(value => typeof value === 'string' && value.trim());
+  return text ? String(text).trim() : '';
 }
 
 export function getCommandPrefixes(prefixes = config.commands.prefixes) {
@@ -219,7 +229,7 @@ export async function isAuthorizedSelfOrOwner(key, lidManager, options = {}) {
   return (await inspectOwnerAuthorization(key, lidManager, options)).authorized;
 }
 
-export async function handleMessage(sock, msg, { lidManager, pluginLoader, logger = console, ownerNumber = config.whatsapp.ownerNumber, allowGroups = config.commands.allowGroups, modeStore = runtimeModeStore } = {}) {
+export async function handleMessage(sock, msg, { lidManager, pluginLoader, logger = console, ownerNumber = config.whatsapp.ownerNumber, allowGroups = config.commands.allowGroups, modeStore = runtimeModeStore, baileys } = {}) {
   if (!msg?.message) return false;
   const key = msg.key || {};
   if (!key.remoteJid || key.remoteJid === 'status@broadcast') return false;
@@ -270,14 +280,15 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
     jid: key.remoteJid,
     quoted: msg,
     reply,
-    rememberPoll: rememberPollCreationMessage
+    rememberPoll: rememberPollCreationMessage,
+    baileys
   });
   const {
-    send, sendInteractive, sendNativeButtons, sendCarousel, sendRichCard,
-    sendTemplateButtons: sendTemplate, sendPoll, sendMedia, sendContact, sendLocation
+    send, sendInteractive, sendNativeButtons, sendCarousel, sendRichCard, sendAIRich,
+    sendTemplateButtons: sendTemplate, sendPoll, sendMedia, sendContact, sendLocation, sendProduct, sendEvent
   } = messageRouter;
-  const downloadMedia = async ({ quoted = false, maxBytes } = {}) => {
-    const descriptor = quoted ? messageInfo.quotedMedia : messageInfo.media;
+  const downloadMedia = async ({ quoted = false, maxBytes, descriptor: explicitDescriptor } = {}) => {
+    const descriptor = explicitDescriptor || (quoted ? messageInfo.quotedMedia : messageInfo.media);
     if (!descriptor) throw new Error(quoted ? 'Pesan kutipan tidak memiliki media.' : 'Pesan ini tidak memiliki lampiran media.');
     return downloadMediaPayload(descriptor, { maxBytes });
   };
@@ -295,12 +306,13 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
   }
   const context = {
     sock, msg, key, lidManager, pluginLoader, command: parsed.command, prefix: parsed.prefix, args: parsed.args, rawArgs: parsed.rawArgs,
-    reply, send, sendInteractive, sendNativeButtons, sendCarousel, sendRichCard, sendTemplateButtons: sendTemplate,
-    sendPoll, sendMedia, sendContact, sendLocation, downloadMedia, messageInfo, isPollUpdate: messageInfo.isPollUpdate,
+    reply, send, sendInteractive, sendNativeButtons, sendCarousel, sendRichCard, sendAIRich, sendTemplateButtons: sendTemplate, sendLegacyButtonMessage: messageRouter.sendLegacyButtonMessage,
+    sendPoll, sendMedia, sendContact, sendLocation, sendProduct, sendEvent, downloadMedia, messageInfo, isPollUpdate: messageInfo.isPollUpdate,
     pollUpdate: messageInfo.pollUpdate, pollCreationMessageKey: messageInfo.pollCreationMessageKey, logger, runtimeMode
   };
   try {
     if (parsed.command === 'mode') {
+      await commandUsageStore.recordHit('mode').catch(error => logger.warn?.('[COMMAND] hit counter write failed:', error.message));
       const action = String(parsed.args[0] || 'status').toLowerCase();
       if (action === 'status') {
         const state = await modeStore.get();
@@ -336,7 +348,70 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
       return true;
     }
 
-    if (parsed.command === 'help' || parsed.command === 'menu') {
+    if (parsed.command === 'menu') {
+      await commandUsageStore.recordHit('menu').catch(error => logger.warn?.('[COMMAND] hit counter write failed:', error.message));
+      let commands = pluginLoader?.listCommands?.() || [];
+      if (runtimeMode.mode === 'public') commands = commands.filter(item => PUBLIC_PRIVATE_COMMANDS.has(item.name));
+      const recommendations = await commandUsageStore.rank(commands, { limit: 10 });
+      await commandUsageStore.recordExposure(recommendations.map(item => item.name));
+      const rows = recommendations.map(item => ({
+        title: `${parsed.prefix}${item.name}`.slice(0, 80),
+        description: `${item.totalHits} hit · ${item.recommendationPercent.toFixed(1)}% rekomendasi · ${item.category}`.slice(0, 120),
+        id: commandActionId(`${parsed.prefix}${item.name}`)
+      }));
+      const catalog = renderCommandCatalog(commands, { prefix: parsed.prefix });
+      const pushName = String(msg.pushName || msg.verifiedBizName || 'kamu').trim().slice(0, 50);
+      const channelUrl = 'https://whatsapp.com/channel/0029Vb8vHDB5PO0v7xAQL33e';
+      let channelThumbnail = null;
+      try { channelThumbnail = await readFile(new URL('../assets/whiskay-channel-preview.jpg', import.meta.url)); } catch {}
+      const externalAdReply = {
+        title: 'Saluran WhatsApp WHISKAY',
+        body: 'Info pembaruan, rilis, dan pengumuman WHISKAY.',
+        sourceUrl: channelUrl,
+        mediaType: 1,
+        renderLargerThumbnail: true,
+        showAdAttribution: false,
+        ...(channelThumbnail ? { jpegThumbnail: channelThumbnail } : {})
+      };
+      const thumbnailUrl = process.env.WHISKAY_CHANNEL_THUMBNAIL_URL;
+      if (thumbnailUrl) {
+        try {
+          const parsedThumb = new URL(thumbnailUrl);
+          if (parsedThumb.protocol === 'https:' && !parsedThumb.username && !parsedThumb.password) externalAdReply.thumbnailUrl = parsedThumb.toString();
+        } catch {}
+      }
+      const menuIntro = `Halo ${pushName}. Ada ${commands.length} command aktif pada registry ini. Menu menampilkan 10 rekomendasi berdasarkan hit aktual, tren 7 hari, kebaruan, pemerataan kategori, dan rotasi command yang jarang digunakan.`;
+      // Native Flow body stays deliberately short. When the full directory fits,
+      // show it in the same menu body; otherwise send the complete catalogue as
+      // bounded ordinary-text messages after the interactive menu.
+      const inlineBody = `${menuIntro}\n\n${catalog}`;
+      const includeCatalogInline = inlineBody.length <= 900;
+      await sendInteractive({
+        title: 'WHISKAY · MENU UTAMA',
+        subtitle: 'Mixed Native Flow · 3 jenis tindakan',
+        body: includeCatalogInline
+          ? inlineBody
+          : `${menuIntro}\n\nDaftar lengkap command, alias, penggunaan, dan deskripsi dikirim setelah menu agar body Native Flow tetap ringkas.`,
+        footer: 'WHISKAY · Command Discovery Engine · Katalog lengkap',
+        contextInfo: { externalAdReply },
+        buttons: [
+          { type: 'quick_reply', title: 'Profile', id: commandActionId(`${parsed.prefix}profile`) },
+          { type: 'webview_url', title: 'Saluran WHISKAY', url: channelUrl, webview_interaction: true },
+          { type: 'single_select', title: '10 Rekomendasi', listTitle: 'Command rekomendasi', sections: [{ title: 'Personalized command picks', rows }] }
+        ]
+      });
+      if (!includeCatalogInline) {
+        const chunks = chunkCommandCatalog(catalog, 3500);
+        for (let index = 0; index < chunks.length; index += 1) {
+          const heading = `KATALOG COMMAND · ${index + 1}/${chunks.length}\n`;
+          await reply(`${heading}${chunks[index]}`);
+        }
+      }
+      return true;
+    }
+
+    if (parsed.command === 'help') {
+      await commandUsageStore.recordHit('help').catch(error => logger.warn?.('[COMMAND] hit counter write failed:', error.message));
       let commands = pluginLoader?.listCommands?.() || [];
       if (runtimeMode.mode === 'public') commands = commands.filter(item => PUBLIC_PRIVATE_COMMANDS.has(item.name));
       else commands = [...commands, { name: 'mode', aliases: [], description: 'Atur mode self/public dan akses grup owner-only', category: 'Runtime Access', usage: 'status|self|public|groups on|off' }];
@@ -345,11 +420,10 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
       if (sections.length > 0 && sections.length <= 10) {
         const rows = sections.reduce((count, section) => count + section.rows.length, 0);
         await sendInteractive({
-          title: 'WHISKAY COMMAND MENU',
-          body: `Pilih dari ${rows} command yang tersedia. Command Instagram ditempatkan dalam section tersendiri.
-Gunakan .plugins untuk daftar teks lengkap.`,
-          footer: 'Native Flow · Single Select',
-          buttons: [{ type: 'single_select', title: 'Browse commands', sections }]
+          title: 'WHISKAY COMMAND DIRECTORY',
+          body: `Daftar lengkap ${rows} command aktif. Instagram dipisahkan ke section tersendiri. Gunakan .menu untuk menu Mixed dengan rekomendasi dinamis.`,
+          footer: 'Single Select · Command Directory',
+          buttons: [{ type: 'single_select', title: 'Browse all commands', sections }]
         });
       } else {
         await reply(menu);
@@ -358,6 +432,10 @@ Gunakan .plugins untuk daftar teks lengkap.`,
     }
     const result = await pluginLoader?.execute(parsed.command, context);
     if (!result?.found) await reply(`Command tidak dikenal: ${parsed.prefix}${parsed.command}\nKetik ${parsed.prefix}help untuk daftar command.`);
+    else {
+      const canonical = (pluginLoader?.listCommands?.() || []).find(item => item.name === parsed.command || item.aliases?.includes(parsed.command))?.name || parsed.command;
+      await commandUsageStore.recordHit(canonical).catch(error => logger.warn?.('[COMMAND] hit counter write failed:', error.message));
+    }
     return Boolean(result?.found);
   } catch (error) {
     logger.error?.(`[COMMAND] ${parsed.command}:`, sanitizeError(error));

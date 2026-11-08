@@ -43,3 +43,6 @@ data/academic-inputs/
 
 # Private video input/output and temp artifacts
 data/remini/
+
+# Versioned ESM snapshots used by dependency-aware hot reload
+.whiskay-runtime/

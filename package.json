@@ -1,8 +1,8 @@
 {
   "name": "whiskay-instagram-growth",
-  "version": "0.10.16",
+  "version": "0.10.22",
   "private": true,
-  "description": "WHISKAY private experimental WhatsApp self-bot with one Instagram session, organic-only growth campaigns, content intelligence, read-only insights, and isolated Academi.cx document review.",
+  "description": "WHISKAY private experimental WhatsApp self-bot with robust media ingress, mixed Native Flow menus, command recommendations, structured WhatsApp messages, KOL.ID Instagram downloader, and YouTube Music search/audio tools.",
   "type": "module",
   "engines": {
     "node": ">=22.5.0 <23",
@@ -28,7 +28,9 @@
     "instagram:doctor": "node scripts/instagram-doctor.mjs",
     "instagram:login": "node --env-file=.env scripts/instagram-login.mjs",
     "instagram:profile": "node scripts/instagram-profile.mjs",
-    "package:release": "node scripts/package-release.mjs"
+    "package:release": "node scripts/package-release.mjs",
+    "postinstall": "node scripts/patch-baileys-view-once.mjs",
+    "baileys:patch-viewonce": "node scripts/patch-baileys-view-once.mjs"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "7.0.0-rc14",

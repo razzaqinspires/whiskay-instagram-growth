@@ -2,13 +2,54 @@ import {
   sendNativeFlow,
   sendNativeCarousel,
   sendRichCard,
+  sendAIRichResponse,
+  sendLegacyButtons,
   sendTemplateButtons,
   sendPollMessage
 } from './native-flow.mjs';
+import { sendViewOnceMedia } from './baileys-media-compat.mjs';
+import { lstat, readFile } from 'node:fs/promises';
+import path from 'node:path';
 
 const MEDIA_TYPES = new Set(['image', 'video', 'ptv', 'audio', 'voice', 'document', 'sticker', 'gif']);
 const CTA_TYPES = new Set(['quick_reply', 'cta_url', 'webview_url', 'cta_copy', 'cta_call', 'cta_catalog', 'single_select']);
-const DISABLED_TYPES = new Set(['product', 'live_location', 'status', 'payment', 'fake_reply', 'ai_forwarded']);
+const DISABLED_TYPES = new Set(['live_location', 'status', 'payment', 'fake_reply', 'ai_forwarded']);
+const MAX_OUTGOING_MEDIA_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Baileys media payloads must be bytes/streams or a supported media descriptor;
+ * a raw filesystem path string is not a stream descriptor. Normalize local paths
+ * to Buffer here so every plugin (including `.waform media ptv`) uses one safe path.
+ */
+export async function normalizeOutgoingMedia(media, { maxBytes = MAX_OUTGOING_MEDIA_BYTES } = {}) {
+  if (Buffer.isBuffer(media)) return media;
+  if (media instanceof Uint8Array) return Buffer.from(media);
+
+  let localPath = '';
+  if (typeof media === 'string') localPath = media;
+  else if (media && typeof media === 'object' && typeof media.url === 'string') localPath = media.url;
+  else throw new TypeError('Media keluar harus berupa Buffer, Uint8Array, atau path file lokal.');
+
+  const value = localPath.trim();
+  if (!value) throw new TypeError('Path media lokal kosong.');
+  if (/^(?:https?|data|blob|file):/i.test(value)) {
+    throw new TypeError('Media keluar hanya menerima Buffer atau path lokal; URL remote tidak diunduh otomatis.');
+  }
+  if (value.includes('\0')) throw new TypeError('Path media mengandung karakter null.');
+
+  const resolved = path.resolve(value);
+  let info;
+  try { info = await lstat(resolved); }
+  catch (error) {
+    if (error.code === 'ENOENT') throw new Error('File media lokal tidak ditemukan.');
+    throw error;
+  }
+  if (info.isSymbolicLink() || !info.isFile()) throw new TypeError('Path media harus menunjuk file reguler, bukan symlink/direktori.');
+  if (info.size < 1) throw new RangeError('File media kosong.');
+  const limit = Math.max(1, Math.min(MAX_OUTGOING_MEDIA_BYTES, Number(maxBytes) || MAX_OUTGOING_MEDIA_BYTES));
+  if (info.size > limit) throw new RangeError(`File media melebihi batas ${Math.round(limit / 1048576)} MiB.`);
+  return readFile(resolved);
+}
 
 export const WHATSAPP_MESSAGE_GUIDE = Object.freeze([
   { type: 'quick_reply', transport: 'Native Flow', use: 'Pilihan singkat yang menjalankan command WHISKAY.' },
@@ -19,13 +60,17 @@ export const WHATSAPP_MESSAGE_GUIDE = Object.freeze([
   { type: 'cta_catalog', transport: 'Native Flow CTA', use: 'Membuka katalog bisnis yang memang terhubung.' },
   { type: 'single_select', transport: 'Native Flow list', use: 'Menu panjang, kategori, dan submenu.' },
   { type: 'template', transport: 'Hydrated Template', use: 'Kompatibilitas client lama; quick reply/URL/call saja.' },
-  { type: 'rich_card', transport: 'Native Flow card', use: 'Satu ringkasan dengan header, body, footer, dan CTA.' },
-  { type: 'carousel', transport: 'Native Flow carousel', use: 'Dua sampai sepuluh kartu; gambar lokal opsional.' },
+  { type: 'rich_card', transport: 'Native Flow card', use: 'Kartu interaktif biasa; bukan AIRichResponse protobuf.' },
+  { type: 'ai_rich_response', transport: 'botForwardedMessage.richResponseMessage + messageContextInfo.botMetadata', use: 'AIRichResponse protobuf dengan unified response sections, table/code capability metadata, dan quoted context; tanpa identitas Meta AI palsu, rendering bergantung client.' },
+  { type: 'carousel', transport: 'InteractiveMessage.carouselMessage', use: 'Dua sampai sepuluh InteractiveMessage cards, card type HSCROLL, root messageContextInfo, quoted context, dan gambar lokal opsional; UI client-dependent.' },
   { type: 'poll', transport: 'Poll native', use: 'Voting dan multi-select yang perlu dihitung WhatsApp.' },
-  { type: 'media', transport: 'Baileys sendMessage', use: 'Image, video, PTV, audio/PTT, document, sticker, dan GIF.' },
+  { type: 'media', transport: 'Baileys sendMessage', use: 'Image, video, PTV/video note (ptv:true), audio/PTT, document, sticker, GIF, serta wrapper viewOnce untuk image/video.' },
+  { type: 'event', transport: 'EventMessage + additionalNodes meta:event_type=creation', use: 'Undangan event terjadwal; field call audio/video meminta call link Baileys jika tersedia. Bukan direct call.' },
+  { type: 'product', transport: 'ProductMessage + catalog snapshot', use: 'Hanya metadata produk/catalog asli milik akun Business; tidak dibuat oleh WHISKAY.' },
   { type: 'contact', transport: 'Contact message', use: 'Kirim satu atau beberapa vCard valid.' },
   { type: 'location', transport: 'Location message', use: 'Kirim satu titik koordinat statis.' },
-  { type: 'table/code/link/latex', transport: 'Text fallback', use: 'Format teks biasa; bukan rich payload proprietary.' }
+  { type: 'table/code', transport: 'AIRichResponse protobuf (text fallback)', use: 'Table/code memakai submessage protobuf + unified response section; bila client tidak render, kirim fallback teks.' },
+  { type: 'link/latex', transport: 'Text fallback', use: 'URL biasa dipratinjau oleh client; LaTeX memakai teks biasa kecuali client memiliki renderer.' }
 ]);
 
 function cleanText(value, label, max = 3000, required = false) {
@@ -93,14 +138,16 @@ export function resolveOutgoingMessageType(input) {
     nativebuttons: 'interactive', native_buttons: 'interactive', buttons: 'interactive', button: 'interactive',
     button_list: 'list', single_select: 'single_select', quick_reply: 'quick_reply', quick_replies: 'interactive',
     url: 'cta_url', webview: 'webview_url', open_webview: 'webview_url', copy: 'cta_copy', call: 'cta_call', catalog: 'cta_catalog',
-    card: 'rich_card', rich: 'rich_card', ai_rich_card: 'rich_card', ai_card: 'rich_card',
+    card: 'rich_card', rich: 'rich_card', ai_rich_card: 'ai_rich_response', ai_card: 'ai_rich_response', ai_rich: 'ai_rich_response',
     template_buttons: 'template', list_message: 'list', native_poll: 'poll',
     contacts: 'contact', static_location: 'location'
   };
   if (explicit) return aliases[explicit] || explicit;
   if (input.poll) return 'poll';
+  if (input.event) return 'event';
   if (input.cards) return 'carousel';
-  if (input.richCard || input.richMessage || input.submessages) return 'rich_card';
+  if (input.aiRichResponse || input.richResponse || input.richMessage || input.submessages) return 'ai_rich_response';
+  if (input.richCard) return 'rich_card';
   if (input.buttons) return 'interactive';
   if (input.list || input.items) return 'list';
   if (input.media !== undefined) return 'media';
@@ -125,15 +172,68 @@ function formatTable(options) {
   return lines.join('\n').slice(0, 4000);
 }
 
-export function createWhatsAppMessageRouter({ sock, jid, quoted = null, reply, rememberPoll = () => {} } = {}) {
+export function createWhatsAppMessageRouter({ sock, jid, quoted = null, reply, rememberPoll = () => {}, baileys } = {}) {
   if (!sock || typeof sock.sendMessage !== 'function') throw new TypeError('Socket Baileys tidak menyediakan sendMessage.');
   if (typeof jid !== 'string' || !jid.trim()) throw new TypeError('JID tujuan pesan tidak tersedia.');
   if (typeof reply !== 'function') throw new TypeError('Callback reply wajib tersedia.');
 
-  const sendInteractive = options => sendNativeFlow(sock, jid, options, quoteFor(options, quoted));
-  const sendCarousel = options => sendNativeCarousel(sock, jid, options, quoteFor(options, quoted));
-  const sendRichCardMessage = options => sendRichCard(sock, jid, options, quoteFor(options, quoted));
+  const sendInteractive = options => sendNativeFlow(sock, jid, options, quoteFor(options, quoted), { baileys });
+  const sendCarousel = options => sendNativeCarousel(sock, jid, options, quoteFor(options, quoted), { baileys });
+  const sendRichCardMessage = options => sendRichCard(sock, jid, options, quoteFor(options, quoted), { baileys });
   const sendTemplate = options => sendTemplateButtons(sock, jid, options, quoteFor(options, quoted));
+  const sendLegacyButtonMessage = options => sendLegacyButtons(sock, jid, options, quoteFor(options, quoted), { baileys });
+  const sendAIRich = options => sendAIRichResponse(sock, jid, options, quoteFor(options, quoted), { baileys });
+  const sendProduct = async options => {
+    if (options.catalogEnabled !== true) throw new TypeError('ProductMessage dinonaktifkan sampai owner mengonfirmasi akun WhatsApp Business dan katalog riil melalui WHISKAY_WHATSAPP_BUSINESS_CATALOG_ENABLED=true.');
+    const product = options.product || options;
+    const ownerJid = String(options.businessOwnerJid || sock.user?.id || '').trim();
+    if (!/@(?:s\.whatsapp\.net|lid)$/.test(ownerJid)) throw new TypeError('Product Message membutuhkan businessOwnerJid akun pengirim yang valid.');
+    const productId = cleanText(product.productId, 'Product ID katalog', 120, true);
+    const title = cleanText(product.title, 'Nama produk', 100, true);
+    const currencyCode = cleanText(product.currencyCode, 'Kode mata uang', 10, true).toUpperCase();
+    if (!/^[A-Z]{3}$/.test(currencyCode)) throw new TypeError('Currency code harus ISO 4217 3 huruf.');
+    const priceAmount1000 = Number(product.priceAmount1000);
+    if (!Number.isSafeInteger(priceAmount1000) || priceAmount1000 < 0) throw new TypeError('priceAmount1000 harus integer non-negatif (nilai harga × 1000).');
+    if (!product.productImage) throw new TypeError('Product Image lokal/Buffer wajib disediakan.');
+    if (typeof product.productImage === 'string' && /^(?:https?|data|blob|file):/i.test(product.productImage.trim())) throw new TypeError('Product Image hanya menerima Buffer atau path lokal.');
+    const payload = {
+      product: {
+        productImage: product.productImage,
+        productId,
+        title,
+        description: cleanText(product.description || '', 'Deskripsi produk', 1000),
+        currencyCode,
+        priceAmount1000,
+        ...(product.retailerId ? { retailerId: cleanText(product.retailerId, 'Retailer ID', 120) } : {}),
+        ...(product.url ? { url: cleanText(product.url, 'Product URL', 2048) } : {})
+      },
+      businessOwnerJid: ownerJid,
+      ...(options.body ? { body: cleanText(options.body, 'Product body', 1000) } : {}),
+      ...(options.footer ? { footer: cleanText(options.footer, 'Product footer', 200) } : {})
+    };
+    return sock.sendMessage(jid, payload, quoteFor(options, quoted) ? { quoted: quoteFor(options, quoted) } : {});
+  };
+  const sendEvent = async options => {
+    const event = options.event || options;
+    const startDate = event.startDate instanceof Date ? event.startDate : new Date(event.startDate);
+    const endDate = event.endDate ? (event.endDate instanceof Date ? event.endDate : new Date(event.endDate)) : undefined;
+    if (!Number.isFinite(startDate.getTime())) throw new TypeError('Event startDate harus tanggal ISO yang valid.');
+    if (endDate && (!Number.isFinite(endDate.getTime()) || endDate <= startDate)) throw new TypeError('Event endDate harus sesudah startDate.');
+    const call = event.call ? String(event.call).toLowerCase() : undefined;
+    if (call && !['audio', 'video'].includes(call)) throw new TypeError('Event call hanya mendukung audio atau video.');
+    if (call && typeof sock.createCallLink !== 'function') throw new Error('Baileys socket tidak menyediakan createCallLink; scheduled call event tidak dikirim tanpa join link asli.');
+    const payload = { event: {
+      name: cleanText(event.name, 'Event name', 100, true),
+      description: cleanText(event.description || '', 'Event description', 1000),
+      startDate,
+      ...(endDate ? { endDate } : {}),
+      ...(event.location ? { location: event.location } : {}),
+      ...(call ? { call } : {}),
+      isCancelled: Boolean(event.isCancelled),
+      extraGuestsAllowed: Boolean(event.extraGuestsAllowed)
+    } };
+    return sock.sendMessage(jid, payload, quoteFor(options, quoted) ? { quoted: quoteFor(options, quoted) } : {});
+  };
   const sendPoll = async options => {
     const sent = await sendPollMessage(sock, jid, options, quoteFor(options, quoted));
     await rememberPoll(sent);
@@ -149,14 +249,17 @@ export function createWhatsAppMessageRouter({ sock, jid, quoted = null, reply, r
     if (typeof media === 'string' && /^(?:https?|data|blob|file):/i.test(media.trim())) throw new TypeError('Media keluar hanya menerima Buffer atau path lokal; URL remote tidak diunduh otomatis.');
     if (media && typeof media === 'object' && typeof media.url === 'string' && /^(?:https?|data|blob|file):/i.test(media.url.trim())) throw new TypeError('Media keluar hanya menerima Buffer atau path lokal; URL remote tidak diunduh otomatis.');
     const key = mediaType === 'gif' ? 'video' : mediaType;
-    content[key] = media;
+    content[key] = await normalizeOutgoingMedia(media);
     if (mediaType === 'gif') content.gifPlayback = true;
     if (mediaType === 'video' && options.ptv) content.ptv = true;
+    if (options.viewOnce) content.viewOnce = true;
     if (options.caption && ['image', 'video', 'document', 'gif'].includes(mediaType)) content.caption = cleanText(options.caption, 'Caption media', 3000);
     if (options.fileName && mediaType === 'document') content.fileName = cleanText(options.fileName, 'Nama file', 180);
     if (options.mimetype) content.mimetype = cleanText(options.mimetype, 'MIME type', 120);
     if (mediaType === 'audio' && options.ptt !== undefined) content.ptt = Boolean(options.ptt);
-    return sock.sendMessage(jid, content, quoteFor(options, quoted) ? { quoted: quoteFor(options, quoted) } : {});
+    const quotedMessage = quoteFor(options, quoted);
+    if (options.viewOnce) return sendViewOnceMedia(sock, jid, content, quotedMessage, { baileys });
+    return sock.sendMessage(jid, content, quotedMessage ? { quoted: quotedMessage } : {});
   };
   const sendContact = async options => sock.sendMessage(jid, buildContactPayload(options), quoteFor(options, quoted) ? { quoted: quoteFor(options, quoted) } : {});
   const sendLocation = async options => sock.sendMessage(jid, buildLocationPayload(options.location || options), quoteFor(options, quoted) ? { quoted: quoteFor(options, quoted) } : {});
@@ -192,9 +295,11 @@ export function createWhatsAppMessageRouter({ sock, jid, quoted = null, reply, r
     if (type === 'carousel') return sendCarousel(options);
     if (type === 'rich_card') {
       const card = options.richCard || options;
-      return sendRichCard({ ...card, title: card.title || (String(options.type || options.kind).toLowerCase().includes('ai') ? 'Ringkasan berbantuan AI' : 'Informasi') });
+      return sendRichCard({ ...card, title: card.title || 'Informasi' });
     }
+    if (type === 'ai_rich_response') return sendAIRich(options.richResponse || options);
     if (type === 'template') return sendTemplate(options);
+    if (type === 'legacy_buttons' || type === 'button_message') return sendLegacyButtonMessage(options);
     if (type === 'poll') return sendPoll(options.poll || options);
     if (type === 'list') {
       const source = options.list || options;
@@ -217,12 +322,18 @@ export function createWhatsAppMessageRouter({ sock, jid, quoted = null, reply, r
       return sendMedia(mediaType, options.media ?? options[type], options);
     }
     if (type === 'contact') return sendContact(options);
+    if (type === 'product') return sendProduct(options);
+    if (type === 'event') return sendEvent(options);
     if (type === 'location') return sendLocation(options);
-    if (type === 'table') return reply(formatTable(options));
+    if (type === 'table') {
+      try { return await sendAIRich({ title: options.title || options.table?.title || 'Data', table: options.table || options }); }
+      catch { return reply(formatTable(options)); }
+    }
     if (type === 'code') {
       const language = cleanText(options.language || 'text', 'Bahasa kode', 30).replace(/[^a-z0-9_+-]/gi, '') || 'text';
       const code = cleanText(options.code, 'Kode', 3000, true);
-      return reply(`\`\`\`${language}\n${code}\n\`\`\``);
+      try { return await sendAIRich({ title: options.title || `Code · ${language}`, language, code }); }
+      catch { return reply(`\`\`\`${language}\n${code}\n\`\`\``); }
     }
     if (type === 'link') {
       const url = cleanText(options.url || options.link, 'URL', 2048, true);
@@ -237,6 +348,6 @@ export function createWhatsAppMessageRouter({ sock, jid, quoted = null, reply, r
 
   return {
     send, sendInteractive, sendNativeButtons: sendInteractive, sendCarousel, sendRichCard: sendRichCardMessage,
-    sendTemplateButtons: sendTemplate, sendPoll, sendMedia, sendContact, sendLocation
+    sendTemplateButtons: sendTemplate, sendLegacyButtonMessage, sendPoll, sendMedia, sendContact, sendLocation, sendProduct, sendEvent, sendAIRich
   };
 }

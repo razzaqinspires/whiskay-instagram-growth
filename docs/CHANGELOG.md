@@ -1,5 +1,44 @@
 # Changelog
 
+## Part 1 — WhatsApp menu and media core repair (2026-11-08)
+
+- Add the complete active command catalogue (names, aliases, usage and descriptions) to `.menu` when it fits the body budget; otherwise send it in bounded text chunks after the original three-button menu.
+- Keep the recommendation list separate from the command directory; `.plugins` remains the paginated interactive catalogue.
+- Normalize local media paths into Buffers before Baileys media serialization, fixing the `.waform media ptv <filename>` primitive-string `stream` error.
+- Reject remote URLs, symlinks, non-regular files, empty files and outgoing media larger than 64 MiB.
+- Add renderer, command-dispatch and media-router regression tests.
+- No schema/session migration and no new dependency. Full QA evidence: [`docs/qa/QA-REPORT-PART1-WHATSAPP-CORE-2026-11-08.md`](qa/QA-REPORT-PART1-WHATSAPP-CORE-2026-11-08.md).
+
+## 0.10.21 — Command Profile alias, call-link validation, and bounded KOL streams
+
+- Add `.profile` as an explicit alias for the active Instagram profile command and use it as the first quick reply in `.menu` and Message Lab demos.
+- Keep the three-button `.menu` layout: Profile quick reply, the owner's WhatsApp Channel WebView CTA, and ten usage-aware command recommendations. The real inbound WAMessage remains the quote; `pushName` remains in the greeting and `externalAdReply` carries the channel preview.
+- Require Baileys `sock.createCallLink` before sending a scheduled audio/video EventMessage, preventing a misleading event with no join link. CTA Call remains a separate OS dialer action.
+- Harden outgoing media/catalog path resolution against symlink escapes and restrict PTV/voice demo file types to compatible local media formats.
+- Add bounded response-body reads and body timeouts for KOL.ID HTML, JSON, and media streams; retain the fixed status route, CDN redirect allowlist, per-item and total byte caps.
+- Remove duplicate recommendation exposure increments from `.waform list` so the discovery engine's promotion history is not double-counted.
+- Add regression coverage for call-link gating and the Profile quick reply alias; all WhatsApp payloads remain client-rendering integration tests, not delivery guarantees.
+
+## 0.10.20 — Video caption/quote dispatch and complete help navigation
+
+- Ensure `.remini` uses a direct attached video or a quoted video descriptor for caption commands and text replies; add end-to-end dispatch regression coverage.
+- Make `.waform help` open the same interactive Message Lab as `.waform`, while including the full syntax matrix in its body.
+- Make `.igdl` and `.igdl help` offer an interactive button menu; provide a URL-input prompt instead of an unstructured help dump.
+- Correct the generic message router alias so `ai-card`/`ai-rich-card` maps to AIRichResponse, while `card` remains the separate Native Flow card transport.
+- Clarify capability docs for AIRichResponse, carousel root context metadata, EventMessage, ProductMessage, PTV, View Once, and fallback behavior.
+- Add plugin button-navigation tests and distinguish supported payload serialization from actual WhatsApp client rendering.
+
+## 0.10.17 — Dependency-aware source hot reload
+
+- Extend file watching from the plugin folder to the full `src/` tree, including libraries and nested dependency directories.
+- Reload all plugins from one versioned ESM source snapshot so statically imported libraries cannot remain stale in the Node module cache.
+- Preserve process-wide modules/path-sensitive stores through symlinks to the live runtime to avoid duplicate config, WhatsApp state, Instagram session, poll cache, growth store, and referral queue instances.
+- Keep the current command registry active when a hot-reload snapshot contains a failed plugin/dependency import.
+- Retry plugins automatically when a previously missing source dependency is added.
+- Add `.hotreload status|reload` and `.watchstatus`; configuration changes continue to require a process restart.
+- Record Ruang.Email integration requirements and command design, but do not activate a client until the supplied raw source can be audited. No API routes or auth contract are guessed.
+
+
 ## 0.10.16 — Unified WhatsApp message router and Video HD presets
 
 - Route outgoing plugin messages through one type-aware adapter for Native Flow, quick replies, CTA URL/WebView/Copy/Call/Catalog, lists, template compatibility, rich cards, carousel, poll, supported media, contacts, static location, and text fallbacks.
@@ -268,3 +307,14 @@
 - Menghapus konsep saldo, wallet, kredit, ledger, budget, payment, dan provider promosi dari runtime/config aktif.
 - Menegaskan command campaign hanya menerima nama dan mengambil identitas dari satu session Instagram aktif.
 - Memperbarui README dan dokumentasi operasional; menghapus dokumen riset SMM/payment yang tidak lagi relevan.
+
+
+## v0.10.19 — Mixed Menu, message reconstruction, and KOL.ID downloader
+
+- Fixed command extraction from attached video/PTV captions and quoted-video replies; `.remini` now prioritizes direct video then quoted video and passes an explicit media descriptor into bounded download.
+- Main `.menu` now emits exactly three Mixed Native Flow actions: `.igprofile` quick reply, channel WebView CTA, and ten mathematically ranked command recommendations. It preserves actual quoted message and push name.
+- Added deterministic recommendation ranking based on total hits, seven-day trend, freshness, exploration for rarely used commands, category diversity, and promotion exposure.
+- Buttonized `.remini`, `.acad`, `.igcampaign`, `.waform`, and `.plugins` navigation while preserving required parameters and Academi.cx CONFIRM.
+- Separated Native Flow card, AIRichResponse, carousel, Hydrated Template Buttons, legacy ButtonsMessage, EventMessage, ProductMessage, poll, PTV and View Once transports.
+- Added KOL.ID public Instagram media downloader `.igdl` with CSRF, async status polling, strict URL/redirect allowlists and bounded downloads.
+- Improved AIRichResponse unified-section types/capability metadata without static bot JID or fake Meta AI attribution.

@@ -23,3 +23,14 @@ test('growth plugin no longer registers payment, wallet, or provider order comma
   assert.ok(names.has('igcampaign'));
   assert.ok(names.has('igcontent'));
 });
+
+
+test('campaign command exposes operations in a clickable single-select menu', async () => {
+  const command = getCommand('igcampaign');
+  let menu;
+  await command.execute({ args: [], rawArgs: '', reply: async () => assert.fail('interactive menu expected'), sendInteractive: async value => { menu = value; } });
+  const rows = menu.buttons[0].sections.flatMap(section => section.rows);
+  assert.equal(rows.length, 10);
+  assert.ok(rows.some(row => row.id === 'wsk:cmd:.igcampaign create'));
+  assert.ok(rows.some(row => row.id === 'wsk:cmd:.igcampaign insights'));
+});

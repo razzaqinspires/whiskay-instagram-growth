@@ -253,3 +253,14 @@ test('redacts configured API key and never echoes raw provider error messages', 
     error => error.message.includes('API key Academi.cx tidak valid') && !error.message.includes(KEY)
   );
 });
+
+
+test('academic review help is button-driven while preserving CONFIRM submission gate', async () => {
+  const command = academicPlugin.commands.find(item => item.name === 'acad');
+  let menu;
+  await command.execute({ rawArgs: '', args: [], reply: async () => assert.fail('interactive menu expected'), sendInteractive: async value => { menu = value; } });
+  const rows = menu.buttons[0].sections.flatMap(section => section.rows);
+  assert.ok(rows.some(row => row.id === 'wsk:cmd:.acad info'));
+  assert.ok(rows.some(row => row.id === 'wsk:cmd:.acad ai'));
+  assert.ok(rows.some(row => row.id === 'wsk:cmd:.acad similarity'));
+});

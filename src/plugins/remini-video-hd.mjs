@@ -1,3 +1,4 @@
+import { commandActionId } from '../lib/native-flow.mjs';
 import {
   enhanceVideoBuffer,
   getVideoToolStatus,
@@ -42,19 +43,44 @@ function formatMetadata(metadata) {
   ];
 }
 
+
+export function selectVideoMedia(messageInfo = {}) {
+  const directMedia = messageInfo?.media || null;
+  const quotedMedia = messageInfo?.quotedMedia || null;
+  if (directMedia?.type === 'video') return { media: directMedia, quoted: false };
+  if (quotedMedia?.type === 'video') return { media: quotedMedia, quoted: true };
+  return { media: null, quoted: false };
+}
+
 export default {
   name: 'remini-video-hd',
   commands: [{
     name: 'remini', aliases: ['videohd', 'enhancevideo'], category: 'Media Processing',
     usage: '[status|info|presets|inspect|enhance [preset]|balanced|sharp|clean|fast] atau lampirkan/balas video',
     description: 'Analisis metadata dan upscale video lokal dengan FFmpeg; preset balanced/sharp/clean/fast',
-    async execute({ args = [], reply, messageInfo, downloadMedia, sock, key, msg }) {
+    async execute({ args = [], reply, sendInteractive, messageInfo, downloadMedia, sock, key, msg }) {
       const action = String(args[0] || '').toLowerCase();
       const requestedPreset = ['balanced', 'sharp', 'clean', 'fast'].includes(action)
         ? action
         : String(args[1] || 'balanced').toLowerCase();
 
-      if (['help', '-h', '--help'].includes(action)) return reply(HELP);
+      const showHelp = async () => {
+        if (typeof sendInteractive === 'function') {
+          return sendInteractive({
+            title: 'WHISKAY · VIDEO HD',
+            body: 'Lampirkan video dengan caption command atau balas video. Pilih diagnostik atau panduan; untuk encode, kirim .remini enhance <preset> bersama video.',
+            footer: 'Local FFmpeg · bukan Remini cloud AI',
+            buttons: [{ type: 'single_select', title: 'Video HD options', sections: [{ title: 'Diagnostik & panduan', rows: [
+              { title: 'Status FFmpeg', description: 'Periksa FFmpeg/FFprobe dan batas proses', id: commandActionId('.remini status') },
+              { title: 'Preset video', description: 'Lihat balanced, sharp, clean, fast', id: commandActionId('.remini presets') },
+              { title: 'Info & batas', description: 'Cara kerja dan batas lokal', id: commandActionId('.remini info') },
+              { title: 'Bantuan', description: 'Petunjuk penggunaan lengkap', id: commandActionId('.remini help') }
+            ] }] }]
+          });
+        }
+        return reply(HELP);
+      };
+      if (['help', '-h', '--help'].includes(action)) return showHelp();
       if (action === 'presets') return reply(`━━ VIDEO HD PRESETS ━━\n${PRESET_HELP}\n\nSemua preset melakukan resize lokal; preset berbeda pada filter denoise/sharpen/warna.`);
       if (action === 'status' || action === 'info') {
         const status = await getVideoToolStatus();
@@ -80,12 +106,16 @@ export default {
 
       const inspectOnly = action === 'inspect';
       const enhanceRequested = !action || ['run', 'enhance', 'balanced', 'sharp', 'clean', 'fast'].includes(action);
-      if (!inspectOnly && !enhanceRequested) return reply(HELP);
+      if (!inspectOnly && !enhanceRequested) return showHelp();
       if (!VIDEO_HD_PRESETS[requestedPreset]) return reply(`Preset tidak dikenal: ${requestedPreset}.\nGunakan: ${Object.keys(VIDEO_HD_PRESETS).join(', ')}`);
 
-      const media = messageInfo?.media || messageInfo?.quotedMedia;
+      // `messageInfo.media` is the current attachment; `quotedMedia` is the
+      // replied-to attachment. Prefer a video source instead of blindly taking
+      // the first media descriptor (a text command may quote a video).
+      const { media, quoted: quotedSource } = selectVideoMedia(messageInfo);
       if (!media || media.type !== 'video') {
-        return reply('Lampirkan video dengan caption `.remini`, atau balas video dengan `.remini inspect` / `.remini enhance sharp`.\n\n' + HELP);
+        await reply('Lampirkan video dengan caption `.remini` atau `.remini enhance sharp`, atau balas video dengan `.remini inspect`.');
+        return showHelp();
       }
       if (media.fileLength > VIDEO_HD_LIMITS.maxInputBytes) return reply(`Ukuran video melewati batas ${formatBytes(VIDEO_HD_LIMITS.maxInputBytes)}.`);
 
@@ -98,7 +128,7 @@ export default {
         ? 'Video diterima. WHISKAY sedang membaca metadata tanpa mengubah file.'
         : `Video diterima. Menjalankan preset ${requestedPreset} dengan FFmpeg lokal.`);
       try {
-        const inputBuffer = await downloadMedia({ quoted: !messageInfo.media && Boolean(messageInfo.quotedMedia), maxBytes: VIDEO_HD_LIMITS.maxInputBytes });
+        const inputBuffer = await downloadMedia({ descriptor: media, quoted: quotedSource, maxBytes: VIDEO_HD_LIMITS.maxInputBytes });
         if (inspectOnly) {
           const metadata = await inspectVideoBuffer(inputBuffer, { inputName: media.fileName || 'video.mp4' });
           const scaleNote = metadata.canEnhance ? `Perkiraan batas upscale: ${metadata.maxScale}x` : 'Sumber sudah berada pada batas dimensi upscale WHISKAY.';

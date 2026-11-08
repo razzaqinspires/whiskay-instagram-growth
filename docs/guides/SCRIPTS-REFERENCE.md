@@ -1,4 +1,4 @@
-# Referensi Scripts WHISKAY v0.10.12
+# Referensi Scripts WHISKAY v0.10.22
 
 `npm start` adalah entrypoint utama. Direktori `scripts/` hanya menyimpan utilitas yang benar-benar ada dan digunakan. Tidak ada updater versi lama, script duplikat, atau backup source.
 
@@ -20,6 +20,9 @@
 | `scripts/merge-platform-config.mjs` | Migrasi config lama secara eksplisit; mempertahankan nilai operator | Jalankan hanya jika panduan migrasi meminta |
 | `scripts/show-config.mjs` | Menampilkan config tersanitasi | `npm run config:show` |
 | `scripts/package-release.mjs` | Membuat source ZIP bersih di luar root proyek | `npm run package:release` |
+| `scripts/patch-baileys-view-once.mjs` | Patch terkontrol Baileys rc14 agar mediatype membaca isi pesan View Once yang telah dinormalisasi | Otomatis melalui `npm install`; manual `npm run baileys:patch-viewonce` |
+| `scripts/queue-health.mjs` | Membaca statistik antrean SQLite Growth dan menutup koneksi diagnostik | `node scripts/queue-health.mjs` |
+| `scripts/worker.mjs` | Entrypoint worker antrean Growth; memuat `.env` dan tidak meneruskan `IG_PASSWORD` ke worker | `node --env-file=.env scripts/worker.mjs` |
 
 ## Perintah npm aktif
 
@@ -45,6 +48,7 @@
 | `npm run instagram:login` | Login pertama eksplisit |
 | `npm run instagram:profile` | Baca profil session aktif |
 | `npm run package:release` | Paket source ZIP |
+| `npm run baileys:patch-viewonce` | Terapkan ulang patch kompatibilitas View Once Baileys rc14 |
 
 ## Aturan pemeliharaan
 
