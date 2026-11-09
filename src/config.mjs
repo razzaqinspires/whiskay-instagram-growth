@@ -88,6 +88,7 @@ export function validateConfig(raw = {}, secrets = process.env, { requireWhatsAp
   const identity = object(root.identity ?? {}, 'identity', errors);
   const referralRaw = object(root.referral ?? {}, 'referral', errors);
   const academixRaw = object(root.academix ?? {}, 'academix', errors);
+  const ownerCodeRaw = object(root.ownerCode ?? {}, 'ownerCode', errors);
 
   const pairingNumber = requireWhatsApp || wa.pairingNumber
     ? phone(wa.pairingNumber, 'whatsapp.pairingNumber', errors) : '';
@@ -274,6 +275,25 @@ export function validateConfig(raw = {}, secrets = process.env, { requireWhatsAp
   const maxMessageChars = int(commands.maxMessageChars, 'commands.maxMessageChars', 3000, 100, 10000, errors);
   const maxCommandArgs = int(commands.maxCommandArgs, 'commands.maxCommandArgs', 24, 1, 64, errors);
 
+  // Owner code execution is a private self-chat control surface, not a plugin command.
+  const ownerCodeEnabled = bool(ownerCodeRaw.enabled, 'ownerCode.enabled', true, errors);
+  const ownerCodeTimeoutMs = int(ownerCodeRaw.timeoutMs, 'ownerCode.timeoutMs', 15000, 1000, 60000, errors);
+  const ownerCodeMaxChars = int(ownerCodeRaw.maxCodeChars, 'ownerCode.maxCodeChars', 8000, 100, 20000, errors);
+  const ownerCodeMaxOutputBytes = int(ownerCodeRaw.maxOutputBytes, 'ownerCode.maxOutputBytes', 16000, 1024, 65536, errors);
+  const ownerCodeWorkDir = absPath(ownerCodeRaw.workDir, 'ownerCode.workDir', './data/owner-runtime', errors, { privateState: true });
+  const ownerCodeStateRoot = IN_NODE_TEST ? path.resolve(TEST_STATE_ROOT, 'data') : path.resolve(PROJECT_ROOT, 'data');
+  if (ownerCodeWorkDir === path.parse(ownerCodeWorkDir).root
+    || ownerCodeWorkDir === PROJECT_ROOT
+    || !ownerCodeWorkDir.startsWith(`${ownerCodeStateRoot}${path.sep}`)) {
+    errors.push('ownerCode.workDir harus berada di dalam direktori data/ privat dan tidak boleh menunjuk root filesystem/proyek.');
+  }
+  const ownerCodePythonBin = String(ownerCodeRaw.pythonBin ?? 'python3').trim();
+  const ownerCodeGoBin = String(ownerCodeRaw.goBin ?? 'go').trim();
+  const ownerCodeShellBin = String(ownerCodeRaw.shellBin ?? '/bin/bash').trim();
+  for (const [name, binary] of [['pythonBin', ownerCodePythonBin], ['goBin', ownerCodeGoBin], ['shellBin', ownerCodeShellBin]]) {
+    if (!binary || binary.length > 200 || binary.includes('\0')) errors.push(`ownerCode.${name} tidak valid.`);
+  }
+
   if (errors.length) {
     const error = new Error(`Konfigurasi tidak valid:\n- ${errors.join('\n- ')}`);
     error.code = 'CONFIG_VALIDATION_FAILED';
@@ -296,6 +316,7 @@ export function validateConfig(raw = {}, secrets = process.env, { requireWhatsAp
         requireOwnerApproval, allowedActions: [...safeAllowedActions] }
     },
     growth: { databaseFile: paths.growthDb },
+    ownerCode: { enabled: ownerCodeEnabled, timeoutMs: ownerCodeTimeoutMs, maxCodeChars: ownerCodeMaxChars, maxOutputBytes: ownerCodeMaxOutputBytes, workDir: ownerCodeWorkDir, pythonBin: ownerCodePythonBin, goBin: ownerCodeGoBin, shellBin: ownerCodeShellBin },
     academix: { enabled: academixEnabled, apiKeyEnv: academixApiKeyEnv, apiKey: academixApiKey, timeoutMs: academixTimeoutMs, maxFileBytes: academixMaxFileBytes, maxTextChars: academixMaxTextChars, inboxDir: paths.academixInbox },
     identity: { lidMapFile: paths.lidMapFile },
     referral: { enabled: referralEnabled,

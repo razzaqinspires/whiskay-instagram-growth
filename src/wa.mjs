@@ -5,6 +5,7 @@ import { attachLidManager, normalizeUserJid } from './lib/lid-manager.mjs';
 import { getReconnectDelay } from './lib/reconnect-policy.mjs';
 import { classifyMessageUpsert } from './lib/message-ingress.mjs';
 import { extractMessageText, parseCommand } from './commands.mjs';
+import { parseOwnerCodeRequest } from './lib/owner-code-runtime.mjs';
 import { config } from './config.mjs';
 import { getPollCreationMessage } from './lib/poll-store.mjs';
 
@@ -192,7 +193,10 @@ async function startSocketInternal() {
     // Keep `notify` as the only executable event class. Baileys uses `append`
     // for history/backfill, which must never replay old owner commands.
     const batch = classifyMessageUpsert(event, {
-      isCommand: message => Boolean(parseCommand(extractMessageText(message.message)))
+      isCommand: message => {
+        const text = extractMessageText(message.message);
+        return Boolean(parseCommand(text) || parseOwnerCodeRequest(text));
+      }
     });
 
     if (batch.type !== 'notify') {

@@ -1,4 +1,42 @@
+## 0.10.26 — Owner Code Runtime restoration and Go support (2026-11-09)
+
+- Restored the dedicated, non-command owner runtime path for `>` (async JavaScript), `=>` (JavaScript expression/return), `$` (Bash CLI), and `>>` (Python 3).
+- Added `>>>` for Go source execution. Go module proxy/checksum downloads are disabled for this runner.
+- Fixed WhatsApp ingress classification so owner runtime messages reach the handler without being exposed through the plugin command registry.
+- Enforced authenticated owner session + `fromMe=true` + private owner self-chat recipient check. Group and arbitrary contact chats are rejected, including in public command mode.
+- Added a single-flight runtime gate, per-runtime timeout, code-size/output caps, process-group termination, private temporary source directory, and owner configuration.
+- Added dedicated parser, authorization-gate, JavaScript, Bash, Python, and Go tests. Runtime execution is privileged and not a security sandbox; see `docs/OWNER-CODE-RUNTIME.md`.
+
 # Changelog
+
+## 0.10.25 — Part 1–3 integration and legacy Growth cleanup
+
+- Integrated the WhatsApp complete-menu catalogue and bounded local-media normalization, the multi-provider TikTok downloader, and the opt-in AI scrape gateway in one release tree.
+- Removed unreferenced legacy promotion-order, wallet, SMM-provider, and SQLite/Redis queue runtime modules and their obsolete command-line scripts. Organic campaign/content persistence remains active in `src/growth/store.mjs`.
+- Removed tests that asserted the explicitly retired order/wallet/queue behavior; added integration regression tests that verify the active plugin registry and the organic-only Growth configuration boundary.
+- Kept old `data/growth-queue.sqlite` and operator `config/app.json` untouched by this source patch. Legacy Growth settings in `config/app.json` are ignored by normalized runtime config; archive old queue data privately before manually deleting it.
+- Updated architecture, project map, script inventory, release/upgrade/QA records. No new npm dependencies, session-format changes, or active database migrations.
+- Reconciled the delivered source tree with the v0.10.25 removal record: removed the stale `src/selfbot.js`/old LID manager, retired referral worker folder, legacy Growth order/provider/queue modules, and their old tests/scripts. The active WhatsApp entrypoint and organic Growth catalog/store remain.
+- Changed release ZIP naming to `${package.json.name}-v${package.json.version}.zip`; release root folder uses the same package-derived name.
+- Runtime smoke now reports missing owner/pairing numbers as `SETUP`; strict configuration validation remains `npm run validate`.
+
+## 0.10.24 — Isolated AI scrape gateway
+
+- Added `.aiscrape` (`.irfanscrape`, `.scrapeai`) with `help`, `info`, `status`, and explicit `run CONFIRM <url> | <prompt>` actions.
+- Added `src/ai/irfan-scrape-adapter.mjs`: fixed HTTPS gateway, exact hostname allowlist, bearer token, DNS public-address checks, redirect rejection, timeout, bounded response, output normalization and safe error mapping.
+- Gateway is disabled by default and no `irfan-cpp` npm dependency was installed. Unverified `voucher`, `token_router`, and `light_house` fields are never forwarded.
+- Added 20 deterministic adapter/plugin tests; no new npm dependencies, schema changes, or database migrations.
+- Recorded source-verification gaps and an opt-in gateway contract in `docs/IRFAN-CPP-INTEGRATION.md`.
+
+## 0.10.23 — Native TikTok multi-provider downloader
+
+- Added `.tiktok` / `.tt` / `.ttdl` / `.tiktokdl` for public TikTok video, photo slides, metadata, and available music tracks.
+- Added `src/media/tiktok-scraper.mjs` with primary/backup HTTPS JSON provider adapters and TikWM final fallback; provider failover covers both resolver and CDN download failures.
+- Normalized creator, caption, statistics, duration, dimensions, publish time, music metadata, image slides, and provider-supplied `headersDownload`.
+- Sanitized download headers; never forwards Cookie, Authorization, proxy headers, or arbitrary request headers to CDN. Added HTTPS host allowlist, redirect revalidation, bounded response reads, item/total byte caps, and request timeouts.
+- Explicit 401/403, private-account, and age-restriction failures stop failover; no story-age or access-control bypass is implemented.
+- Added deterministic scraper and plugin tests; no new npm dependencies or database migrations.
+
 
 ## Part 1 — WhatsApp menu and media core repair (2026-11-08)
 
@@ -318,3 +356,9 @@
 - Separated Native Flow card, AIRichResponse, carousel, Hydrated Template Buttons, legacy ButtonsMessage, EventMessage, ProductMessage, poll, PTV and View Once transports.
 - Added KOL.ID public Instagram media downloader `.igdl` with CSRF, async status polling, strict URL/redirect allowlists and bounded downloads.
 - Improved AIRichResponse unified-section types/capability metadata without static bot JID or fake Meta AI attribution.
+
+## 2026-11-08 — Part 5 Runtime Validation
+
+- Added `npm run runtime:smoke` to verify runtime config, plugin discovery, `.waform`, `.tiktok`, `.aiscrape`, their aliases, and duplicate command-key safety without sending WhatsApp messages or calling external providers.
+- Added the controlled live-deployment checklist and evidence boundary in `docs/qa/RUNTIME-VALIDATION-PART5-2026-11-08.md`.
+- Live WhatsApp/provider validation remains an operator-side step; this patch does not claim a production deployment.

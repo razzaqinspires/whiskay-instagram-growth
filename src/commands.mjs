@@ -2,7 +2,8 @@ import { normalizeUserJid } from './lib/lid-manager.mjs';
 import { renderCommandMenu, renderCommandCatalog, chunkCommandCatalog } from './lib/menu-renderer.mjs';
 import { AntiSpamGuard } from './security/anti-spam.mjs';
 import { sanitizeError } from './security/redact.mjs';
-import { config } from './config.mjs';
+import { config, PROJECT_ROOT } from './config.mjs';
+import { parseOwnerCodeRequest, executeOwnerCodeRequest, formatOwnerCodeResult, isOwnerPrivateSelfChat } from './lib/owner-code-runtime.mjs';
 import { extractCommandFromInteractiveResponse } from './lib/native-flow.mjs';
 import { createWhatsAppMessageRouter } from './lib/whatsapp-message-router.mjs';
 import { inspectIncomingMessage, downloadMediaPayload, describeMessageMedia, unwrapMessageContent } from './lib/baileys-serializer.mjs';
@@ -233,20 +234,23 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
   if (!msg?.message) return false;
   const key = msg.key || {};
   if (!key.remoteJid || key.remoteJid === 'status@broadcast') return false;
-  const parsed = parseCommand(extractMessageText(msg.message));
-  if (!parsed) return false;
+  const messageText = extractMessageText(msg.message);
+  const ownerCodeRequest = parseOwnerCodeRequest(messageText);
+  const parsed = parseCommand(messageText);
+  if (!parsed && !ownerCodeRequest) return false;
 
   let runtimeMode = await modeStore.get();
   if (modeStore === runtimeModeStore && runtimeMode.updatedAt === null) runtimeMode = { ...runtimeMode, allowGroups };
   const isGroup = String(key.remoteJid).endsWith('@g.us');
-  const modeCommand = parsed.command === 'mode';
-  logger.info?.({ command: parsed.command, fromMe: Boolean(key.fromMe), mode: runtimeMode.mode }, '[COMMAND] Incoming command');
+  const modeCommand = parsed?.command === 'mode';
+  const logCommand = parsed?.command || ownerCodeRequest?.runtime || 'unknown';
+  logger.info?.({ command: logCommand, fromMe: Boolean(key.fromMe), mode: runtimeMode.mode }, '[COMMAND] Incoming command');
 
   let authorization;
-  if (modeCommand || runtimeMode.mode === 'self') {
+  if (ownerCodeRequest || modeCommand || runtimeMode.mode === 'self') {
     authorization = await inspectOwnerAuthorization(key, lidManager, {
       ownerNumber,
-      allowGroups: runtimeMode.mode === 'self' && runtimeMode.allowGroups,
+      allowGroups: !ownerCodeRequest && runtimeMode.mode === 'self' && runtimeMode.allowGroups,
       sessionPn: sock?.user?.id,
       sessionLid: sock?.user?.lid
     });
@@ -260,9 +264,20 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
     };
   }
 
+  if (authorization.authorized && ownerCodeRequest) {
+    const ownerSelfChat = await isOwnerPrivateSelfChat({
+      key,
+      lidManager,
+      ownerNumber,
+      sessionPn: sock?.user?.id,
+      sessionLid: sock?.user?.lid
+    });
+    if (!ownerSelfChat) authorization = { authorized: false, reason: 'OWNER_CODE_REQUIRES_PRIVATE_SELF_CHAT' };
+  }
+
   if (!authorization.authorized) {
     logger.warn?.({
-      command: parsed.command,
+      command: logCommand,
       fromMe: Boolean(key.fromMe),
       mode: runtimeMode.mode,
       reason: authorization.reason,
@@ -293,7 +308,9 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
     return downloadMediaPayload(descriptor, { maxBytes });
   };
   const sender = key.participant || key.remoteJid;
-  const antiSpamCommandKey = parsed.command === 'mode' ? `mode:${parsed.args.join(':') || 'status'}` : parsed.command;
+  const antiSpamCommandKey = ownerCodeRequest
+    ? `owner-code:${ownerCodeRequest.runtime}`
+    : parsed.command === 'mode' ? `mode:${parsed.args.join(':') || 'status'}` : parsed.command;
   const gate = getAntiSpamGuard().check({ sender, command: antiSpamCommandKey, messageId: key.id });
   if (!gate.allowed) {
     if (gate.warn) {
@@ -305,12 +322,27 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
     return false;
   }
   const context = {
-    sock, msg, key, lidManager, pluginLoader, command: parsed.command, prefix: parsed.prefix, args: parsed.args, rawArgs: parsed.rawArgs,
+    sock, msg, key, lidManager, pluginLoader, command: parsed?.command || ownerCodeRequest?.runtime, prefix: parsed?.prefix || ownerCodeRequest?.prefix, args: parsed?.args || [], rawArgs: parsed?.rawArgs || ownerCodeRequest?.source,
     reply, send, sendInteractive, sendNativeButtons, sendCarousel, sendRichCard, sendAIRich, sendTemplateButtons: sendTemplate, sendLegacyButtonMessage: messageRouter.sendLegacyButtonMessage,
     sendPoll, sendMedia, sendContact, sendLocation, sendProduct, sendEvent, downloadMedia, messageInfo, isPollUpdate: messageInfo.isPollUpdate,
     pollUpdate: messageInfo.pollUpdate, pollCreationMessageKey: messageInfo.pollCreationMessageKey, logger, runtimeMode
   };
   try {
+    if (ownerCodeRequest) {
+      if (!config.ownerCode.enabled) {
+        await reply('Owner runtime sedang dinonaktifkan melalui config/app.json ownerCode.enabled.');
+        return true;
+      }
+      const result = await executeOwnerCodeRequest(ownerCodeRequest, {
+        config: config.ownerCode,
+        projectRoot: PROJECT_ROOT,
+        context: { ...context, config }
+      });
+      await reply(formatOwnerCodeResult(ownerCodeRequest, result));
+      logger.info?.({ runtime: ownerCodeRequest.runtime, ok: result.ok, durationMs: result.durationMs }, '[OWNER RUNTIME] Execution completed');
+      return true;
+    }
+
     if (parsed.command === 'mode') {
       await commandUsageStore.recordHit('mode').catch(error => logger.warn?.('[COMMAND] hit counter write failed:', error.message));
       const action = String(parsed.args[0] || 'status').toLowerCase();
@@ -438,7 +470,7 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
     }
     return Boolean(result?.found);
   } catch (error) {
-    logger.error?.(`[COMMAND] ${parsed.command}:`, sanitizeError(error));
+    logger.error?.(`[COMMAND] ${parsed?.command || ownerCodeRequest?.runtime || 'unknown'}:`, sanitizeError(error));
     await reply(`Command error: ${sanitizeError(error).message}`);
     return false;
   } finally {

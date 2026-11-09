@@ -1,3 +1,7 @@
+> **Arsip historis — bukan spesifikasi fitur aktif.** Dokumen ini memuat riset rancangan layanan promosi/order/provider yang dihentikan pada v0.10.12. WHISKAY v0.10.25 tidak memiliki saldo, wallet, order, SMM delivery, atau provider engagement. Gunakan hanya untuk memahami keputusan sejarah; jangan mengaktifkan konfigurasi atau mengembalikan command yang dijelaskan di sini.
+
+---
+
 # Research Register — SMM Panel Architecture
 
 ## Source
@@ -71,3 +75,12 @@ This section is separate from the user-provided SMM-panel research above. It rec
 - Keep a single socket lifecycle, one reconnect timer, jittered exponential delays, and only reset retries after a stable connection interval.
 - Keep `fromMe: true` owner-authenticated messages eligible for dispatch, including commands sent to another private chat; the normal Baileys sample filters them because it demonstrates a reply-bot, whereas WHISKAY intentionally operates as an owner self-bot.
 - Automated test success does not verify an account-specific live WhatsApp connection or delivery.
+
+
+## External AI scraping package request — `irfan-cpp`
+
+The requested CommonJS snippet describes `Scrape.build().scrape({ prompt, url, voucher, settings })`, with a model alias plus `token_router` and `light_house` domain fields. The source package identity, registry metadata, repository, license, lifecycle scripts, transitive dependencies, and actual request destinations could not be independently verified during this implementation. The code-host URL supplied for the TikTok scraper is a separate source and was also unavailable to the build environment.
+
+**Decision:** do not add `irfan-cpp` to `package.json`, do not execute its install scripts, and do not send the supplied voucher/routing fields to any third party. Add only an opt-in owner-configured HTTPS gateway adapter with a documented request schema. This is a WHISKAY-owned integration boundary, not a claim of API compatibility with the uninspected npm package. Before adopting the package itself, obtain its exact tarball/source and verify the npm publisher/provenance, repository, license, scripts, dependencies, and runtime egress. npm documents provenance verification and `npm audit signatures`; a clean signature check is provenance evidence, not a guarantee that package code is safe.
+
+Implementation: `src/ai/irfan-scrape-adapter.mjs`, `src/plugins/ai-scrape.mjs`, `test/irfan-scrape-adapter.test.mjs`, and `test/ai-scrape-plugin.test.mjs`.

@@ -1,0 +1,12 @@
+WHISKAY Part 2 patch — 2026-11-08
+Target baseline: WHISKAY source archive wbself.zip (v0.10.22).
+Target package version: 0.10.23.
+
+Included: TikTok multi-provider downloader, command plugin, safe environment examples,
+README/configuration/project docs, release/upgrade/QA records, and focused tests.
+
+No dependencies added. No database or WhatsApp/Instagram session migration.
+No .env, config/app.json, session, auth_ig, data runtime, node_modules, or credentials included.
+
+Apply to the matching WHISKAY working tree. The README and changelog include the cumulative
+Part 1 notes as well as Part 2 notes; the Part 1 source files themselves are not repeated here.

@@ -52,6 +52,18 @@ test('Instagram password remains outside application config and Python adapter i
   assert.equal(Object.hasOwn(result.instagram, 'password'), false);
 });
 
+test('ownerCode runtime defaults are bounded and temporary files stay under private data', () => {
+  const result = validateConfig(base, {});
+  assert.equal(result.ownerCode.enabled, true);
+  assert.equal(result.ownerCode.timeoutMs, 15000);
+  assert.equal(result.ownerCode.maxCodeChars, 8000);
+  assert.equal(result.ownerCode.maxOutputBytes, 16000);
+  assert.match(result.ownerCode.workDir, /data[\\/]owner-runtime$/);
+  assert.equal(result.ownerCode.goBin, 'go');
+  assert.throws(() => validateConfig({ ...base, ownerCode: { workDir: './src' } }, {}), /ownerCode.workDir harus berada di dalam direktori data/);
+  assert.throws(() => validateConfig({ ...base, ownerCode: { timeoutMs: 90000 } }, {}), /ownerCode.timeoutMs harus bilangan bulat/);
+});
+
 test('ordinary config rejects string booleans and growth config contains no financial/provider settings', () => {
   assert.throws(() => validateConfig({ ...base, whatsapp: { ...base.whatsapp, syncFullHistory: 'false' } }, {}), /harus boolean/);
   const result = validateConfig({ ...base, growth: { ...base.growth, providerEnabled: true, requireWallet: true, providerApiUrl: 'https://unused.invalid' } }, {});

@@ -1,3 +1,11 @@
+# Arsip Historis — Growth Queue Operations
+
+> **Bukan runbook aktif.** Dokumen ini menjelaskan subsistem promotion-order/queue yang pernah ada pada versi lama. Keputusan produk v0.10.12 menghapus saldo, wallet, order, provider delivery, dan queue dari WHISKAY. Pada v0.10.25 source worker dan script queue telah dihapus. Jangan jalankan perintah atau prosedur pemulihan dari isi historis di bawah.
+
+Runtime aktif hanya menggunakan `src/growth/store.mjs` untuk campaign organik dan content analytics. `config.growth` hanya mengekspos `databaseFile`. File `data/growth-queue.sqlite` yang mungkin tertinggal tidak dibuka atau dihapus otomatis. Backup privat sebelum penghapusan manual.
+
+---
+
 # Growth Queue Operations — WHISKAY v0.10.7
 
 Dokumen ini menjelaskan kontrak antrean SQLite growth, retry, retensi terminal, redaksi error, metrik health, serta batas operasional worker. Antrean ini hanya memproses order kampanye yang sudah berstatus `APPROVED`; perubahan di v0.10.7 tidak mengubah sumber approval maupun mengaktifkan provider secara otomatis.

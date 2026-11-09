@@ -47,3 +47,8 @@ Live WhatsApp delivery/rendering was not tested from this isolated source archiv
 ## Rollback
 
 Restore the previous versions of the changed source files from the server backup or prior release. No runtime data migration is required.
+
+
+## Superseding finding — Part 4
+
+The two previously open Growth tests were traced to orphaned order/wallet/queue modules that contradicted the active v0.10.12 organic-only schema. Part 4 removed these obsolete modules/tests instead of restoring financial functionality. Campaign/content storage remains active. See `QA-REPORT-v0.10.25.md`.

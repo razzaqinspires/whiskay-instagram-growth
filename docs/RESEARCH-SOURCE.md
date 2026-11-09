@@ -1,3 +1,7 @@
+> **Arsip historis — bukan spesifikasi fitur aktif.** Dokumen ini memuat riset rancangan layanan promosi/order/provider yang dihentikan pada v0.10.12. WHISKAY v0.10.25 tidak memiliki saldo, wallet, order, SMM delivery, atau provider engagement. Gunakan hanya untuk memahami keputusan sejarah; jangan mengaktifkan konfigurasi atau mengembalikan command yang dijelaskan di sini.
+
+---
+
 # Naskah Riset Asli dari Pengguna
 
 Judul: **Analisis Arsitektur Rekayasa Sistem SMM Panel dan Mekanisme Otomasi Pertumbuhan Media Sosial**

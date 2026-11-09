@@ -5,8 +5,12 @@ import { spawnSync } from 'node:child_process';
 import { PROJECT_ROOT } from '../src/config.mjs';
 import packageJson from '../package.json' with { type: 'json' };
 
-const archiveRootName = `whiskay-v${packageJson.version}`;
-const output = path.resolve(process.argv[2] || path.join(path.dirname(PROJECT_ROOT), `${archiveRootName}-source.zip`));
+const packageName = String(packageJson.name || '').trim();
+if (!/^[a-z0-9][a-z0-9._-]*$/i.test(packageName)) {
+  throw new Error(`package.json name tidak aman untuk nama arsip: ${packageName || '(kosong)'}`);
+}
+const archiveRootName = `${packageName}-v${packageJson.version}`;
+const output = path.resolve(process.argv[2] || path.join(path.dirname(PROJECT_ROOT), `${archiveRootName}.zip`));
 if (path.extname(output).toLowerCase() !== '.zip') {
   throw new Error('Output release harus menggunakan ekstensi .zip.');
 }
@@ -77,6 +81,7 @@ try {
   const result = spawnSync('zip', ['-qr', output, archiveRootName], { cwd: stageRoot, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(`zip gagal: ${result.stderr || result.stdout || result.status}`);
   console.log(`[RELEASE] ${output}`);
+  console.log(`[RELEASE] Package: ${packageJson.name}@${packageJson.version}`);
   console.log('[RELEASE] Included: README.md, docs/, config template, maintained scripts/source/tests, and vendor reference files.');
   console.log('[RELEASE] Excluded: .env, config/app.json, sessions, auth_ig credentials, runtime data, databases, archives, node_modules, Python venv, and Git metadata.');
 } finally {

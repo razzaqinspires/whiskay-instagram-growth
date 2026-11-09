@@ -84,6 +84,16 @@
   "growth": {
     "databaseFile": "./data/instagram-growth.json"
   },
+  "ownerCode": {
+    "enabled": true,
+    "timeoutMs": 15000,
+    "maxCodeChars": 8000,
+    "maxOutputBytes": 16000,
+    "workDir": "./data/owner-runtime",
+    "pythonBin": "python3",
+    "goBin": "go",
+    "shellBin": "/bin/bash"
+  },
   "identity": {
     "lidMapFile": "./data/lid-map.json"
   },

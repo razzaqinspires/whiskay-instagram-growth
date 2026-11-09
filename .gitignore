@@ -46,3 +46,6 @@ data/remini/
 
 # Versioned ESM snapshots used by dependency-aware hot reload
 .whiskay-runtime/
+
+# Owner-only CLI/Python/Go temporary source files
+data/owner-runtime/
