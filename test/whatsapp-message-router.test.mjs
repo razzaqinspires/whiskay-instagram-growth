@@ -96,6 +96,20 @@ test('generic send rejects incomplete product, secret-bearing copy codes, and bl
   await assert.rejects(router.send({ type: 'media', mediaType: 'image', media: 'https://127.0.0.1/private' }), /URL remote/);
 });
 
+test('generic message router accepts send_location as an explicit Native Flow action', async () => {
+  const sent = [];
+  const sock = { sendMessage: async () => ({ key: { id: 'text' } }), relayMessage: async (...args) => { sent.push(args); } };
+  const router = createWhatsAppMessageRouter({ sock, jid: '6281234567890@s.whatsapp.net', reply: async () => {}, baileys: {
+    proto: { MessageContextInfo: { create: value => value } },
+    generateMessageIDV2: () => 'native-location-id',
+    generateWAMessageFromContent: (jid, message) => ({ key: { remoteJid: jid, id: 'native-location-id' }, message })
+  } });
+  const result = await router.send({ type: 'send_location', title: 'Bagikan lokasi', body: 'Share your location' });
+  assert.equal(result.key.id, 'native-location-id');
+  const native = sent[0][1].viewOnceMessage.message.interactiveMessage.nativeFlowMessage.buttons[0];
+  assert.equal(native.name, 'send_location');
+});
+
 test('maps event and native AIRichResponse as distinct outgoing message formats', () => {
   assert.equal(resolveOutgoingMessageType({ event: { name: 'Meeting', startDate: new Date() } }), 'event');
   assert.equal(resolveOutgoingMessageType({ type: 'ai_rich_response' }), 'ai_rich_response');
@@ -150,6 +164,30 @@ test('ProductMessage validates real catalog fields and rejects arbitrary remote 
   await assert.rejects(router.send({ type: 'event', event: { name: 'Invalid', startDate: 'not-a-date' } }), /tanggal ISO/);
 });
 
+
+
+test('normalizes ProductMessage local image paths into uploadable Buffer payloads', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'whiskay-product-image-'));
+  const file = path.join(dir, 'product.jpg');
+  const bytes = Buffer.from('local-product-image-bytes');
+  try {
+    await writeFile(file, bytes);
+    const sent = [];
+    const sock = {
+      user: { id: '6281234567890@s.whatsapp.net' },
+      sendMessage: async (jid, payload, options) => { sent.push({ jid, payload, options }); return { key: { id: 'product-sent-1' } }; }
+    };
+    const router = createWhatsAppMessageRouter({ sock, jid: '6281234567890@s.whatsapp.net', reply: async () => {} });
+    await router.send({ type: 'product', catalogEnabled: true, businessOwnerJid: '6281234567890@s.whatsapp.net', product: {
+      productId: 'catalog-item-1', title: 'Demo Product', currencyCode: 'IDR', priceAmount1000: 125000,
+      productImage: file
+    } });
+    assert.ok(Buffer.isBuffer(sent[0].payload.product.productImage));
+    assert.deepEqual(sent[0].payload.product.productImage, bytes);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 test('normalizes a local media path to Buffer before handing it to Baileys', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'whiskay-media-path-'));

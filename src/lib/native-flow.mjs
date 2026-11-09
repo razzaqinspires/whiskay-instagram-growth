@@ -10,7 +10,8 @@ import { randomBytes, randomUUID } from 'node:crypto';
  */
 
 const ACTION_PREFIX = 'wsk:cmd:';
-const BUTTON_TYPES = new Set(['quick_reply', 'cta_url', 'webview_url', 'open_webview', 'url', 'cta_call', 'cta_copy', 'cta_catalog', 'single_select', 'list']);
+const BUTTON_TYPES = new Set(['quick_reply', 'cta_url', 'webview_url', 'open_webview', 'url', 'cta_call', 'cta_copy', 'cta_catalog', 'send_location', 'single_select', 'list']);
+const SPECIAL_FLOW_V2 = new Set(['cta_catalog', 'send_location', 'call_permission_request', 'mpm', 'wa_payment_transaction_details', 'automated_greeting_message_view_catalog']);
 const TEXT_LIMIT = 1024;
 
 function httpsUrl(rawValue, label) {
@@ -105,19 +106,19 @@ export function normalizeNativeButtons(buttons = []) {
       name = 'cta_url';
       const rawUrl = cleanText(button.url || button.link, `button ${index + 1} url`, 2048, true);
       const normalizedUrl = httpsUrl(rawUrl, `URL tombol ${index + 1}`);
-      const merchantUrl = httpsUrl(button.merchant_url || normalizedUrl, `Merchant URL tombol ${index + 1}`);
-      params = { display_text: label, url: normalizedUrl, merchant_url: merchantUrl, ...(wantsWebview ? { webview_interaction: true } : {}) };
+      const merchantUrl = button.merchant_url ? httpsUrl(button.merchant_url, `Merchant URL tombol ${index + 1}`) : null;
+      params = { display_text: label, url: normalizedUrl, ...(merchantUrl ? { merchant_url: merchantUrl } : {}), ...(wantsWebview ? { webview_interaction: true } : {}) };
     } else if (name === 'cta_call') {
       const phone = cleanText(button.phone, `button ${index + 1} phone`, 20, true).replace(/[\s()-]/g, '');
       if (!/^\+?[1-9]\d{6,14}$/.test(phone)) throw new TypeError('Nomor CTA Call harus dalam format internasional.');
-      params = { display_text: label, phone, phone_number: phone };
+      params = { display_text: label, phone_number: phone };
     } else if (name === 'cta_copy') {
       const copyCode = cleanText(button.copy_code, `button ${index + 1} copy_code`, 256, true);
       if (/(password|passwd|secret|api[_-]?key|access[_-]?token|bearer|private[_-]?key)/i.test(copyCode)) {
         throw new TypeError('CTA Copy tidak boleh berisi password, token, API key, atau rahasia.');
       }
       params = { display_text: label, id: cleanText(button.id || `copy_${index + 1}`, 'copy id', 120), copy_code: copyCode };
-    } else if (name === 'cta_catalog') {
+    } else if (name === 'cta_catalog' || name === 'send_location') {
       params = { display_text: label };
     } else {
       name = 'single_select';
@@ -155,7 +156,7 @@ export function buildNativeFlowTextFallback({ title = '', subtitle = '', body = 
   return lines.join('\n').slice(0, 4000);
 }
 
-function makeBizNodes(targetJid, flowName = 'mixed', { quality = true, botNode = true } = {}) {
+function makeBizNodes(targetJid, flowName = 'mixed', { quality = true, botNode = true, flowVersion = 9 } = {}) {
   // Match the complete envelope used by the supplied serializer: WHISKAY's
   // earlier adapter omitted quality_control and the biz attributes. A relay
   // ACK alone does not prove that the recipient client can render the payload.
@@ -177,7 +178,7 @@ function makeBizNodes(targetJid, flowName = 'mixed', { quality = true, botNode =
     content: [{
       tag: 'interactive',
       attrs: { type: 'native_flow', v: '1' },
-      content: [{ tag: 'native_flow', attrs: { v: '9', name: flowName } }]
+      content: [{ tag: 'native_flow', attrs: { v: String(flowVersion), name: flowName } }]
     }, ...(quality ? [qualityControl] : [])]
   }];
   if (botNode && !String(targetJid).endsWith('@g.us')) nodes.push({ tag: 'bot', attrs: { biz_bot: '1' } });
@@ -188,11 +189,23 @@ async function loadBaileys(injected) {
   return injected || import('@whiskeysockets/baileys');
 }
 
-async function relayInteractive(sock, jid, messageContent, quoted, baileys, { additionalNodes } = {}) {
+function resolveFlowDescriptor(buttons = []) {
+  const firstName = String(buttons?.[0]?.name || '').toLowerCase();
+  if (SPECIAL_FLOW_V2.has(firstName)) return { name: firstName, version: 2 };
+  return { name: 'mixed', version: 9 };
+}
+
+function isGroupJid(jid, baileys) {
+  if (typeof baileys?.isJidGroup === 'function') {
+    try { return Boolean(baileys.isJidGroup(jid)); } catch {}
+  }
+  return typeof jid === 'string' && jid.endsWith('@g.us');
+}
+
+async function relayInteractive(sock, jid, messageContent, quoted, baileys, { additionalNodes, flowButtons = [] } = {}) {
   const targetJid = typeof sock.decodeJid === 'function' ? sock.decodeJid(jid) : jid;
   if (!targetJid || typeof sock.relayMessage !== 'function') throw new TypeError('Socket tidak menyediakan relayMessage/JID tujuan.');
   const userJid = sock.user?.id || sock.authState?.creds?.me?.id;
-  const proto = baileys.proto;
   const messageId = typeof baileys.generateMessageIDV2 === 'function' && userJid
     ? baileys.generateMessageIDV2(userJid)
     : undefined;
@@ -204,17 +217,31 @@ async function relayInteractive(sock, jid, messageContent, quoted, baileys, { ad
     logger: sock.logger
   });
   if (!generated?.message || !generated?.key?.id) throw new Error('Baileys tidak menghasilkan WAMessage yang valid.');
-  const requiredNodes = makeBizNodes(targetJid);
-  const nodes = [...requiredNodes, ...(Array.isArray(additionalNodes) ? additionalNodes : [])];
-  await sock.relayMessage(targetJid, generated.message, { messageId: generated.key.id, additionalNodes: nodes });
-  return generated;
+
+  const descriptor = resolveFlowDescriptor(flowButtons);
+  const requiredNodes = makeBizNodes(targetJid, descriptor.name, {
+    flowVersion: descriptor.version,
+    botNode: !isGroupJid(targetJid, baileys)
+  });
+  const extras = Array.isArray(additionalNodes) ? additionalNodes : [];
+  if (extras.some(node => ['biz', 'bot'].includes(String(node?.tag || '').toLowerCase()))) {
+    throw new TypeError('additionalNodes tidak boleh menggandakan node reserved biz/bot; node tersebut dibuat otomatis.');
+  }
+  const relayResult = await sock.relayMessage(targetJid, generated.message, {
+    messageId: generated.key.id,
+    additionalNodes: [...requiredNodes, ...extras]
+  });
+  return { ...generated, relayResult, transport: 'Baileys Native Flow relay' };
 }
 
 export async function sendNativeFlow(sock, jid, options = {}, quoted = null, { baileys: injectedBaileys } = {}) {
   const fallback = buildNativeFlowTextFallback(options);
+  let baileys;
+  let payload;
+  let buttons;
   try {
-    const buttons = normalizeNativeButtons(options.buttons);
-    const baileys = await loadBaileys(injectedBaileys);
+    buttons = normalizeNativeButtons(options.buttons);
+    baileys = await loadBaileys(injectedBaileys);
     let preparedHeaderMedia = {};
     const mediaInput = options.image || options.media;
     const mediaType = ['image', 'video', 'document'].includes(options.mediaType) ? options.mediaType : 'image';
@@ -236,44 +263,61 @@ export async function sendNativeFlow(sock, jid, options = {}, quoted = null, { b
     const messageContextInfo = typeof baileys.proto?.MessageContextInfo?.create === 'function'
       ? baileys.proto.MessageContextInfo.create({ deviceListMetadata: {}, deviceListMetadataVersion: 2 })
       : { deviceListMetadata: {}, deviceListMetadataVersion: 2 };
-    const payload = options.wrapper === 'none'
-      ? { messageContextInfo, interactiveMessage }
-      : { viewOnceMessage: { message: { messageContextInfo, interactiveMessage } } };
-    return await relayInteractive(sock, jid, payload, quoted, baileys, { additionalNodes: options.additionalNodes });
+    if (options.wrapper === 'ephemeral' || options.ephemeral) {
+      payload = { ephemeralMessage: { message: { messageContextInfo, interactiveMessage } } };
+    } else if (options.wrapper === 'none') {
+      payload = { messageContextInfo, interactiveMessage };
+    } else {
+      payload = { viewOnceMessage: { message: { messageContextInfo, interactiveMessage } } };
+    }
   } catch (error) {
     if (typeof sock?.sendMessage !== 'function') throw error;
     const result = await sock.sendMessage(jid, { text: fallback || 'Interactive message tidak tersedia pada koneksi ini.' }, quoted ? { quoted } : {});
     return { ...result, interactiveFallback: true, fallbackReason: error?.message || 'native-flow-unavailable' };
   }
+  // Do not catch relay errors here: a relay may have reached WhatsApp before a
+  // transport timeout. Sending a text fallback after an ambiguous relay error
+  // can create duplicate messages and conceal the actual transport failure.
+  return relayInteractive(sock, jid, payload, quoted, baileys, {
+    additionalNodes: options.additionalNodes,
+    flowButtons: buttons
+  });
 }
 
 export function buildCarouselCards(cards = []) {
   if (!Array.isArray(cards) || cards.length < 2 || cards.length > 10) throw new RangeError('Carousel membutuhkan 2–10 cards.');
-  return cards.map((card, index) => ({
-    header: {
-      title: cleanText(card.title, `card ${index + 1} title`, 80, true),
-      ...(card.subtitle ? { subtitle: cleanText(card.subtitle, `card ${index + 1} subtitle`, 120) } : {}),
-      hasMediaAttachment: Boolean(card.image)
-    },
-    body: { text: cleanText(card.body, `card ${index + 1} body`, 900, true) },
-    footer: { text: cleanText(card.footer, `card ${index + 1} footer`, 120) },
-    nativeFlowMessage: { messageParamsJson: '', buttons: normalizeNativeButtons(card.buttons) }
-  }));
+  return cards.map((card, index) => {
+    if (card.image && card.video) throw new TypeError(`Carousel card ${index + 1} hanya boleh memiliki image atau video, bukan keduanya.`);
+    return {
+      header: {
+        title: cleanText(card.title, `card ${index + 1} title`, 80, true),
+        ...(card.subtitle ? { subtitle: cleanText(card.subtitle, `card ${index + 1} subtitle`, 120) } : {}),
+        hasMediaAttachment: Boolean(card.image || card.video)
+      },
+      body: { text: cleanText(card.body, `card ${index + 1} body`, 900, true) },
+      ...(card.footer ? { footer: { text: cleanText(card.footer, `card ${index + 1} footer`, 120) } } : {}),
+      nativeFlowMessage: { messageParamsJson: '', buttons: normalizeNativeButtons(card.buttons) }
+    };
+  });
 }
 
 export async function sendNativeCarousel(sock, jid, options = {}, quoted = null, { baileys: injectedBaileys } = {}) {
   const fallback = [options.title, options.body, ...(options.cards || []).map(card => `\n*${card.title}*\n${card.body}`), options.footer].filter(Boolean).join('\n').slice(0, 4000);
+  let baileys;
+  let content;
   try {
     const cards = buildCarouselCards(options.cards);
-    const baileys = await loadBaileys(injectedBaileys);
+    baileys = await loadBaileys(injectedBaileys);
     for (let index = 0; index < options.cards.length; index += 1) {
       const card = options.cards[index];
-      if (!card.image) continue;
+      const mediaType = card.video ? 'video' : 'image';
+      const mediaInput = card.video || card.image;
+      if (!mediaInput) continue;
       if (typeof baileys.prepareWAMessageMedia !== 'function' || typeof sock?.waUploadToServer !== 'function') {
-        throw new Error(`Upload image carousel card ${index + 1} tidak tersedia.`);
+        throw new Error(`Upload ${mediaType} carousel card ${index + 1} tidak tersedia.`);
       }
-      const image = localMediaSource(card.image, `Carousel image card ${index + 1}`);
-      const prepared = await baileys.prepareWAMessageMedia({ image }, { upload: sock.waUploadToServer });
+      const media = localMediaSource(mediaInput, `Carousel ${mediaType} card ${index + 1}`);
+      const prepared = await baileys.prepareWAMessageMedia({ [mediaType]: media }, { upload: sock.waUploadToServer });
       cards[index].header = { ...cards[index].header, hasMediaAttachment: true, ...prepared };
     }
     const contextInfo = {
@@ -290,16 +334,15 @@ export async function sendNativeCarousel(sock, jid, options = {}, quoted = null,
       contextInfo,
       carouselMessage: { cards, messageVersion: 1, carouselCardType: 1 }
     };
-    const content = options.wrapper === 'view-once'
+    content = options.wrapper === 'view-once'
       ? { viewOnceMessage: { message: { messageContextInfo, interactiveMessage: carouselMessage } } }
       : { messageContextInfo, interactiveMessage: carouselMessage };
-    const targetJid = typeof sock.decodeJid === 'function' ? sock.decodeJid(jid) : jid;
-    return await relayInteractive(sock, jid, content, quoted, baileys, { additionalNodes: options.additionalNodes });
   } catch (error) {
     if (typeof sock?.sendMessage !== 'function') throw error;
     const result = await sock.sendMessage(jid, { text: fallback || 'Carousel tidak tersedia pada koneksi ini.' }, quoted ? { quoted } : {});
     return { ...result, interactiveFallback: true, fallbackReason: error?.message || 'carousel-unavailable' };
   }
+  return relayInteractive(sock, jid, content, quoted, baileys, { additionalNodes: options.additionalNodes });
 }
 
 
@@ -408,7 +451,12 @@ export async function sendRichCard(sock, jid, options = {}, quoted = null, depen
 export function buildAIRichResponseContent({ title = '', text = '', code = '', language = 'text', table = null, html = '', htmlTitle = 'WHISKAY HTML Preview', trustedSources = [], forwardedContext = false, contextInfo = {}, quoted = null } = {}) {
   const submessages = [];
   const sections = [];
-  const addUnifiedSection = primitive => sections.push({ __typename: 'GenAIUnifiedResponseSection', view_model: { primitive, __typename: 'GenAISingleLayoutViewModel' } });
+  // AIRichResponse unified sections use a direct SingleLayout view_model.
+  // Wrapping every primitive in GenAIUnifiedResponseSection breaks parity with
+  // the working AIRich builder shape used by current WhatsApp clients.
+  const addUnifiedSection = primitive => sections.push({
+    view_model: { primitive, __typename: 'GenAISingleLayoutViewModel' }
+  });
   const heading = cleanText(title, 'AI rich heading', 160);
   if (heading) {
     submessages.push({ messageType: 2, messageText: heading });
@@ -461,8 +509,10 @@ export function buildAIRichResponseContent({ title = '', text = '', code = '', l
   };
   return {
     messageContextInfo: {
+      threadId: [],
       deviceListMetadata: {},
       deviceListMetadataVersion: 2,
+      messageSecret: randomBytes(32),
       botMetadata: {
         messageDisclaimerText: 'WHISKAY · Structured response',
         richResponseSourcesMetadata: { sources: [] },
@@ -475,7 +525,7 @@ export function buildAIRichResponseContent({ title = '', text = '', code = '', l
         richResponseMessage: {
           messageType: 1,
           submessages,
-          unifiedResponse: { data: Buffer.from(JSON.stringify({ response_id: randomUUID(), sections, ...(html ? { embedded_screens: [{ title: cleanText(htmlTitle, 'HTML screen title', 100, true), content: [{ __typename: 'FOAEmbeddedScreenContentTabbed', tabs: [{ id: 'tab_0', tab_header: 'Preview', sections: [{ __typename: 'GenAIUnifiedResponseSection', view_model: { __typename: 'GenAISingleLayoutViewModel', primitive: { __typename: 'GenAIaeacdsnwHtmlPrimitive', payload: html, ...(safeTrustedSources.length ? { trusted_sources: safeTrustedSources } : {}) } } }] }] }] }] } : {}) })).toString('base64') },
+          unifiedResponse: { data: Buffer.from(JSON.stringify({ response_id: randomUUID(), sections, ...(html ? { embedded_screens: [{ title: cleanText(htmlTitle, 'HTML screen title', 100, true), content: [{ __typename: 'FOAEmbeddedScreenContentTabbed', tabs: [{ id: 'tab_0', tab_header: 'Preview', sections: [{ view_model: { __typename: 'GenAISingleLayoutViewModel', primitive: { __typename: 'GenAIaeacdsnwHtmlPrimitive', payload: html, ...(safeTrustedSources.length ? { trusted_sources: safeTrustedSources } : {}) } } }] }] }] }] } : {}) })).toString('base64') },
           contextInfo: richContext
         }
       }
@@ -489,14 +539,25 @@ export async function sendAIRichResponse(sock, jid, options = {}, quoted = null,
   const targetJid = typeof sock.decodeJid === 'function' ? sock.decodeJid(jid) : jid;
   if (!targetJid || typeof sock.relayMessage !== 'function') throw new TypeError('Socket tidak menyediakan relayMessage/JID tujuan.');
   const userJid = sock.user?.id || sock.authState?.creds?.me?.id;
-  const messageId = typeof baileys.generateMessageIDV2 === 'function' && userJid ? baileys.generateMessageIDV2(userJid) : undefined;
-  const generated = baileys.generateWAMessageFromContent(targetJid, content, { userJid, messageId, timestamp: new Date(), quoted: quoted || undefined, logger: sock.logger });
-  if (!generated?.message || !generated?.key?.id) throw new Error('Baileys tidak menghasilkan AIRichResponse WAMessage.');
-  await sock.relayMessage(targetJid, generated.message, {
-    messageId: generated.key.id,
+  // Match the AIRich helper transport: relay the protobuf content directly.
+  // generateWAMessageFromContent is intended for regular WAMessage creation and
+  // can rewrite quote context on the outer FutureProofMessage envelope.
+  const messageId = typeof baileys.generateMessageIDV2 === 'function'
+    ? baileys.generateMessageIDV2(userJid)
+    : randomUUID().replaceAll('-', '').slice(0, 20).toUpperCase();
+  const relayOptions = {
+    messageId,
     ...(Array.isArray(options.additionalNodes) && options.additionalNodes.length ? { additionalNodes: options.additionalNodes } : {})
-  });
-  return { ...generated, experimental: true, transport: 'AIRichResponse protobuf' };
+  };
+  const relayResult = await sock.relayMessage(targetJid, content, relayOptions);
+  const returnedId = typeof relayResult === 'string' ? relayResult : relayResult?.key?.id || messageId;
+  return {
+    key: { remoteJid: targetJid, fromMe: true, id: returnedId },
+    message: content,
+    relayResult,
+    experimental: true,
+    transport: 'AIRichResponse protobuf'
+  };
 }
 
 export async function sendPollMessage(sock, jid, { name, values, selectableCount = 1 } = {}, quoted = null) {

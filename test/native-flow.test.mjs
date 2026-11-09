@@ -15,6 +15,7 @@ import {
   sendLegacyButtons,
   sendTemplateButtons,
   sendNativeFlow,
+  sendAIRichResponse,
   sendPollMessage
 } from '../src/lib/native-flow.mjs';
 
@@ -44,6 +45,12 @@ test('normalizes supported native buttons and rejects unsafe URL/call defaults',
   assert.equal(JSON.parse(buttons[1].buttonParamsJson).url, 'https://example.com/');
   assert.throws(() => normalizeNativeButtons([{ type: 'cta_url', title: 'Open' }]), /url wajib/);
   assert.throws(() => normalizeNativeButtons([{ type: 'cta_call', title: 'Call' }]), /phone wajib/);
+});
+
+test('normalizes send_location as a special Native Flow action', () => {
+  const [button] = normalizeNativeButtons([{ type: 'send_location', title: 'Share location' }]);
+  assert.equal(button.name, 'send_location');
+  assert.deepEqual(JSON.parse(button.buttonParamsJson), { display_text: 'Share location' });
 });
 
 test('extracts native-flow, list, button, and wrapped responses safely', () => {
@@ -77,6 +84,46 @@ test('builds carousel cards from validated buttons', () => {
   assert.equal(cards.length, 2);
   assert.equal(cards[0].nativeFlowMessage.buttons.length, 1);
   assert.throws(() => buildCarouselCards([{ title: 'Only one', body: 'not enough', buttons: [{ title: 'Go', id: 'x' }] }]), /2–10/);
+});
+
+test('carousel cards support one local image or video attachment and omit empty footers', () => {
+  const cards = buildCarouselCards([
+    { title: 'Image', body: 'Image card', image: Buffer.from('image'), buttons: [{ type: 'quick_reply', title: 'Open', id: 'wsk:cmd:.menu' }] },
+    { title: 'Video', body: 'Video card', video: Buffer.from('video'), buttons: [{ type: 'quick_reply', title: 'Open', id: 'wsk:cmd:.menu' }] }
+  ]);
+  assert.equal(cards[0].header.hasMediaAttachment, true);
+  assert.equal(cards[1].header.hasMediaAttachment, true);
+  assert.equal(Object.hasOwn(cards[0], 'footer'), false);
+  assert.throws(() => buildCarouselCards([
+    { title: 'Both', body: 'invalid', image: Buffer.from('i'), video: Buffer.from('v'), buttons: [{ type: 'quick_reply', title: 'Open', id: 'x' }] },
+    { title: 'Second', body: 'ok', buttons: [{ type: 'quick_reply', title: 'Open', id: 'y' }] }
+  ]), /image atau video/);
+});
+
+test('carousel media uses Baileys prepareWAMessageMedia with the matching image/video field', async () => {
+  const preparedTypes = [];
+  const relayed = [];
+  const baileys = {
+    ...baileysMock,
+    prepareWAMessageMedia: async payload => {
+      const key = Object.keys(payload)[0];
+      preparedTypes.push(key);
+      return { [`${key}Message`]: { mimetype: key === 'image' ? 'image/jpeg' : 'video/mp4', fileLength: 4 } };
+    }
+  };
+  const sock = {
+    user: { id: '6281234567890@s.whatsapp.net' },
+    waUploadToServer: async () => ({}),
+    relayMessage: async (...args) => relayed.push(args)
+  };
+  await sendNativeCarousel(sock, '6281234567890@s.whatsapp.net', { title: 'Media', body: 'Cards', cards: [
+    { title: 'Image', body: 'Image card', image: Buffer.from('img'), buttons: [{ type: 'quick_reply', title: 'Open', id: 'wsk:cmd:.menu' }] },
+    { title: 'Video', body: 'Video card', video: Buffer.from('vid'), buttons: [{ type: 'quick_reply', title: 'Open', id: 'wsk:cmd:.menu' }] }
+  ] }, null, { baileys });
+  assert.deepEqual(preparedTypes, ['image', 'video']);
+  const cards = relayed[0][1].interactiveMessage.carouselMessage.cards;
+  assert.ok(cards[0].header.imageMessage);
+  assert.ok(cards[1].header.videoMessage);
 });
 
 test('sendNativeFlow relays an interactive payload with required envelope nodes', async () => {
@@ -128,6 +175,21 @@ test('sendNativeCarousel relays a carousel and falls back to text on invalid con
 });
 
 
+test('carousel relay errors propagate without sending a second text message', async () => {
+  let fallbackCount = 0;
+  const sock = {
+    relayMessage: async () => { throw new Error('carousel relay timeout'); },
+    sendMessage: async () => { fallbackCount += 1; return { key: { id: 'text-fallback' } }; }
+  };
+  await assert.rejects(sendNativeCarousel(sock, '6281234567890@s.whatsapp.net', {
+    title: 'Carousel', body: 'Cards', cards: [
+      { title: 'One', body: 'First', buttons: [{ type: 'quick_reply', title: 'Open', id: 'wsk:cmd:.menu' }] },
+      { title: 'Two', body: 'Second', buttons: [{ type: 'quick_reply', title: 'Open', id: 'wsk:cmd:.menu' }] }
+    ]
+  }, null, { baileys: baileysMock }), /carousel relay timeout/);
+  assert.equal(fallbackCount, 0);
+});
+
 test('Native Flow group envelope includes biz quality metadata but omits private bot node', async () => {
   const relayed = [];
   const sock = {
@@ -155,6 +217,59 @@ test('normalizes WebView aliases and requires HTTPS for every CTA URL', () => {
   assert.throws(() => normalizeNativeButtons([{ type: 'webview_url', title: 'Open', url: 'http://example.com' }]), /HTTPS/);
   assert.throws(() => normalizeNativeButtons([{ type: 'cta_url', title: 'Open', url: 'javascript:alert(1)' }]), /HTTPS/);
   assert.throws(() => normalizeNativeButtons([{ type: 'cta_url', title: 'Open', url: 'https://example.com', merchant_url: 'http://example.com' }]), /HTTPS/);
+});
+
+test('special Native Flow actions use their dedicated binary node descriptor', async () => {
+  const relayed = [];
+  const sock = {
+    user: { id: '6281234567890@s.whatsapp.net' },
+    relayMessage: async (...args) => { relayed.push(args); return 'ACK-SPECIAL'; }
+  };
+  await sendNativeFlow(sock, '6281234567890@s.whatsapp.net', {
+    body: 'Share your location',
+    buttons: [{ type: 'send_location', title: 'Share location' }]
+  }, null, { baileys: baileysMock });
+  const biz = relayed[0][2].additionalNodes.find(node => node.tag === 'biz');
+  const nativeFlow = biz.content.find(node => node.tag === 'interactive').content[0];
+  assert.deepEqual(nativeFlow.attrs, { v: '2', name: 'send_location' });
+  assert.deepEqual(JSON.parse(relayed[0][1].viewOnceMessage.message.interactiveMessage.nativeFlowMessage.buttons[0].buttonParamsJson), { display_text: 'Share location' });
+});
+
+test('CTA catalog selects the catalog special flow while ordinary quick replies remain mixed', async () => {
+  const relayed = [];
+  const sock = { user: { id: '6281234567890@s.whatsapp.net' }, relayMessage: async (...args) => relayed.push(args) };
+  await sendNativeFlow(sock, '6281234567890@s.whatsapp.net', { body: 'Catalog', buttons: [{ type: 'cta_catalog', title: 'Open catalog' }] }, null, { baileys: baileysMock });
+  let node = relayed[0][2].additionalNodes.find(item => item.tag === 'biz').content.find(item => item.tag === 'interactive').content[0];
+  assert.deepEqual(node.attrs, { v: '2', name: 'cta_catalog' });
+  relayed.length = 0;
+  await sendNativeFlow(sock, '6281234567890@s.whatsapp.net', { body: 'Menu', buttons: [{ type: 'quick_reply', title: 'Menu', id: 'wsk:cmd:.menu' }] }, null, { baileys: baileysMock });
+  node = relayed[0][2].additionalNodes.find(item => item.tag === 'biz').content.find(item => item.tag === 'interactive').content[0];
+  assert.deepEqual(node.attrs, { v: '9', name: 'mixed' });
+});
+
+test('relay errors propagate and never trigger a duplicate text fallback', async () => {
+  let fallbackCount = 0;
+  const sock = {
+    user: { id: '6281234567890@s.whatsapp.net' },
+    relayMessage: async () => { throw new Error('network timeout after relay'); },
+    sendMessage: async () => { fallbackCount += 1; return { key: { id: 'fallback' } }; }
+  };
+  await assert.rejects(sendNativeFlow(sock, '6281234567890@s.whatsapp.net', {
+    body: 'Menu', buttons: [{ type: 'quick_reply', title: 'Menu', id: 'wsk:cmd:.menu' }]
+  }, null, { baileys: baileysMock }), /network timeout/);
+  assert.equal(fallbackCount, 0);
+});
+
+test('reserved biz/bot binary nodes cannot be duplicated by caller-supplied extras', async () => {
+  const sock = {
+    user: { id: '6281234567890@s.whatsapp.net' },
+    relayMessage: async () => { throw new Error('should not relay'); },
+    sendMessage: async () => ({ key: { id: 'fallback' } })
+  };
+  await assert.rejects(sendNativeFlow(sock, '6281234567890@s.whatsapp.net', {
+    body: 'Menu', buttons: [{ type: 'quick_reply', title: 'Menu', id: 'wsk:cmd:.menu' }],
+    additionalNodes: [{ tag: 'biz', attrs: { fake: '1' } }]
+  }, null, { baileys: baileysMock }), /reserved biz\/bot/);
 });
 
 test('builds legacy hydrated Template Buttons only for supported, bounded action types', () => {
@@ -261,12 +376,30 @@ test('builds a genuine generic AIRichResponse shape without impersonation metada
   assert.equal(rich.submessages[1].messageType, 5);
   assert.ok(rich.unifiedResponse.data.length > 10);
   const unified = JSON.parse(Buffer.from(rich.unifiedResponse.data, 'base64').toString('utf8'));
-  assert.ok(unified.sections.every(section => section.__typename === 'GenAIUnifiedResponseSection'));
+  assert.ok(unified.sections.every(section => section.view_model?.__typename === 'GenAISingleLayoutViewModel'));
+  assert.ok(unified.sections.every(section => section.__typename === undefined));
   assert.ok(content.messageContextInfo.botMetadata.capabilityMetadata.capabilities.includes(8));
   assert.ok(content.messageContextInfo.botMetadata.capabilityMetadata.capabilities.includes(7));
   assert.equal(content.messageContextInfo.botMetadata.messageDisclaimerText, 'WHISKAY · Structured response');
   assert.equal(rich.contextInfo.forwardingScore, 0);
   assert.equal(rich.contextInfo.forwardedAiBotMessageInfo, undefined);
+});
+
+
+test('AIRichResponse uses direct relayMessage payload and the AIRich single-layout section shape', async () => {
+  const relayed = [];
+  const sock = {
+    user: { id: '6281234567890@s.whatsapp.net' },
+    relayMessage: async (...args) => { relayed.push(args); return 'AIRICH-RELAY-ID'; }
+  };
+  const result = await sendAIRichResponse(sock, '6281234567890@s.whatsapp.net', { title: 'WHISKAY', text: 'AI Rich sample' }, null, { baileys: baileysMock });
+  assert.equal(relayed.length, 1);
+  assert.equal(relayed[0][2].messageId, 'GENERATED-MESSAGE-ID');
+  assert.ok(relayed[0][1].botForwardedMessage.message.richResponseMessage);
+  const unified = JSON.parse(Buffer.from(relayed[0][1].botForwardedMessage.message.richResponseMessage.unifiedResponse.data, 'base64').toString('utf8'));
+  assert.equal(unified.sections[0].view_model.__typename, 'GenAISingleLayoutViewModel');
+  assert.equal(result.key.id, 'AIRICH-RELAY-ID');
+  assert.equal(result.transport, 'AIRichResponse protobuf');
 });
 
 test('builds an AIRich HTML embedded screen with valid nested tab sections and optional trusted source', () => {

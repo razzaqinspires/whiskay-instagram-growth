@@ -12,7 +12,7 @@ import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const MEDIA_TYPES = new Set(['image', 'video', 'ptv', 'audio', 'voice', 'document', 'sticker', 'gif']);
-const CTA_TYPES = new Set(['quick_reply', 'cta_url', 'webview_url', 'cta_copy', 'cta_call', 'cta_catalog', 'single_select']);
+const CTA_TYPES = new Set(['quick_reply', 'cta_url', 'webview_url', 'cta_copy', 'cta_call', 'cta_catalog', 'send_location', 'single_select']);
 const DISABLED_TYPES = new Set(['live_location', 'status', 'payment', 'fake_reply', 'ai_forwarded']);
 const MAX_OUTGOING_MEDIA_BYTES = 64 * 1024 * 1024;
 
@@ -57,7 +57,8 @@ export const WHATSAPP_MESSAGE_GUIDE = Object.freeze([
   { type: 'webview_url', transport: 'Native Flow CTA', use: 'URL HTTPS dengan webview_interaction; dukungan bergantung client.' },
   { type: 'cta_copy', transport: 'Native Flow CTA', use: 'Menyalin ID/kode publik non-rahasia.' },
   { type: 'cta_call', transport: 'Native Flow CTA', use: 'Membuka dialer untuk nomor dukungan yang valid.' },
-  { type: 'cta_catalog', transport: 'Native Flow CTA', use: 'Membuka katalog bisnis yang memang terhubung.' },
+  { type: 'cta_catalog', transport: 'Native Flow special flow', use: 'Membuka katalog bisnis yang memang terhubung; memerlukan dukungan akun Business.' },
+  { type: 'send_location', transport: 'Native Flow special flow', use: 'Meminta pengguna membagikan lokasi melalui UI WhatsApp; dukungan bergantung client.' },
   { type: 'single_select', transport: 'Native Flow list', use: 'Menu panjang, kategori, dan submenu.' },
   { type: 'template', transport: 'Hydrated Template', use: 'Kompatibilitas client lama; quick reply/URL/call saja.' },
   { type: 'rich_card', transport: 'Native Flow card', use: 'Kartu interaktif biasa; bukan AIRichResponse protobuf.' },
@@ -137,7 +138,7 @@ export function resolveOutgoingMessageType(input) {
   const aliases = {
     nativebuttons: 'interactive', native_buttons: 'interactive', buttons: 'interactive', button: 'interactive',
     button_list: 'list', single_select: 'single_select', quick_reply: 'quick_reply', quick_replies: 'interactive',
-    url: 'cta_url', webview: 'webview_url', open_webview: 'webview_url', copy: 'cta_copy', call: 'cta_call', catalog: 'cta_catalog',
+    url: 'cta_url', webview: 'webview_url', open_webview: 'webview_url', copy: 'cta_copy', call: 'cta_call', catalog: 'cta_catalog', request_location: 'send_location', location_request: 'send_location',
     card: 'rich_card', rich: 'rich_card', ai_rich_card: 'ai_rich_response', ai_card: 'ai_rich_response', ai_rich: 'ai_rich_response',
     template_buttons: 'template', list_message: 'list', native_poll: 'poll',
     contacts: 'contact', static_location: 'location'
@@ -198,7 +199,8 @@ export function createWhatsAppMessageRouter({ sock, jid, quoted = null, reply, r
     if (typeof product.productImage === 'string' && /^(?:https?|data|blob|file):/i.test(product.productImage.trim())) throw new TypeError('Product Image hanya menerima Buffer atau path lokal.');
     const payload = {
       product: {
-        productImage: product.productImage,
+        // Baileys expects a media upload (Buffer/stream/{url}), not a raw path.
+        productImage: await normalizeOutgoingMedia(product.productImage),
         productId,
         title,
         description: cleanText(product.description || '', 'Deskripsi produk', 1000),
@@ -267,7 +269,7 @@ export function createWhatsAppMessageRouter({ sock, jid, quoted = null, reply, r
   const sendCTA = (type, options) => {
     const button = {
       type,
-      title: options.buttonTitle || options.title || ({ cta_url: 'Buka tautan', webview_url: 'Buka aplikasi', cta_copy: 'Salin kode', cta_call: 'Telepon', cta_catalog: 'Lihat katalog', quick_reply: 'Pilih' }[type] || 'Pilih')
+      title: options.buttonTitle || options.title || ({ cta_url: 'Buka tautan', webview_url: 'Buka aplikasi', cta_copy: 'Salin kode', cta_call: 'Telepon', cta_catalog: 'Lihat katalog', send_location: 'Bagikan lokasi', quick_reply: 'Pilih' }[type] || 'Pilih')
     };
     if (type === 'quick_reply') button.id = cleanText(options.id || options.action, 'Quick reply ID', 120, true);
     if (type === 'cta_url' || type === 'webview_url') { button.url = options.url || options.link; if (options.merchant_url) button.merchant_url = options.merchant_url; }
@@ -277,6 +279,7 @@ export function createWhatsAppMessageRouter({ sock, jid, quoted = null, reply, r
       button.copy_code = copyCode; button.id = options.id || 'copy_public_value';
     }
     if (type === 'cta_call') button.phone = options.phone || options.phone_number;
+    if (type === 'send_location') button.type = 'send_location';
     if (type === 'single_select') { button.sections = options.sections; button.listTitle = options.listTitle || options.title; }
     return sendInteractive({
       title: options.headerTitle || (type === 'single_select' ? 'Pilih salah satu' : 'WHISKAY'),
@@ -343,7 +346,7 @@ export function createWhatsAppMessageRouter({ sock, jid, quoted = null, reply, r
       return reply(`${cleanText(options.text || options.body || 'Tautan', 'Teks tautan', 1000)}\n${parsed.toString()}`);
     }
     if (type === 'latex') return reply(cleanText(options.text || options.latex, 'Ekspresi matematika', 3000, true));
-    throw new TypeError('Format tidak dikenal. Gunakan text, quick_reply, cta_url, webview_url, cta_copy, cta_call, cta_catalog, list, template, rich_card, carousel, poll, media, contact, location, table, code, link, atau latex.');
+    throw new TypeError('Format tidak dikenal. Gunakan text, quick_reply, cta_url, webview_url, cta_copy, cta_call, cta_catalog, send_location, list, template, rich_card, carousel, poll, media, contact, location, table, code, link, atau latex.');
   };
 
   return {

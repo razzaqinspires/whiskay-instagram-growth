@@ -9,6 +9,16 @@
 
 # Changelog
 
+## 0.10.27 — WhatsApp Message Lab & Baileys serializer compatibility (2026-11-09)
+
+- Fixed AIRichResponse unified section shape to use direct `GenAISingleLayoutViewModel` primitives and direct `relayMessage` transport, following the structure of the supplied working AIRich helper without copying its fixed bot JID/Meta AI attribution.
+- Added `messageSecret` and thread/device metadata to the AIRich envelope; retained neutral WHISKAY disclaimer/capabilities and genuine quoted-message context.
+- Changed `.waform` sample commands to provide no-argument defaults for AI Rich, code, contact, location, PTV media, scheduled event/call, URL/WebView, Copy and dialer demonstrations.
+- Product demo now selects the first real product from the connected Business catalog when no parameters are supplied. It uses the local image in `assets/whatsapp-media-demo/`; no product ID, retailer ID, currency or price is fabricated. Catalog feature flag remains required.
+- Local media resolution now reads from `assets/` with traversal/symlink checks and no longer assumes demo assets are in `data/`. Product image paths are converted to uploadable `Buffer` objects before Baileys receives them.
+- Expanded incoming-message classification for current Baileys WAProto types including album, request-phone-number, sticker pack, poll result snapshot, history notices/bundles, scheduled calls, questions/status messages and AI Rich; added nested AIRich text/quote extraction.
+- No Baileys version bump or database migration. Live WhatsApp rendering/delivery remains unverified; see the upstream issue and test limitations in the release QA report.
+
 ## 0.10.25 — Part 1–3 integration and legacy Growth cleanup
 
 - Integrated the WhatsApp complete-menu catalogue and bounded local-media normalization, the multi-provider TikTok downloader, and the opt-in AI scrape gateway in one release tree.
@@ -184,6 +194,16 @@
 - Live WhatsApp rendering and delivery were not tested in this environment.
 
 # Changelog
+
+## 0.10.27 — WhatsApp Message Lab & Baileys serializer compatibility (2026-11-09)
+
+- Fixed AIRichResponse unified section shape to use direct `GenAISingleLayoutViewModel` primitives and direct `relayMessage` transport, following the structure of the supplied working AIRich helper without copying its fixed bot JID/Meta AI attribution.
+- Added `messageSecret` and thread/device metadata to the AIRich envelope; retained neutral WHISKAY disclaimer/capabilities and genuine quoted-message context.
+- Changed `.waform` sample commands to provide no-argument defaults for AI Rich, code, contact, location, PTV media, scheduled event/call, URL/WebView, Copy and dialer demonstrations.
+- Product demo now selects the first real product from the connected Business catalog when no parameters are supplied. It uses the local image in `assets/whatsapp-media-demo/`; no product ID, retailer ID, currency or price is fabricated. Catalog feature flag remains required.
+- Local media resolution now reads from `assets/` with traversal/symlink checks and no longer assumes demo assets are in `data/`. Product image paths are converted to uploadable `Buffer` objects before Baileys receives them.
+- Expanded incoming-message classification for current Baileys WAProto types including album, request-phone-number, sticker pack, poll result snapshot, history notices/bundles, scheduled calls, questions/status messages and AI Rich; added nested AIRich text/quote extraction.
+- No Baileys version bump or database migration. Live WhatsApp rendering/delivery remains unverified; see the upstream issue and test limitations in the release QA report.
 
 ## 0.9.4 — Test isolation, configuration integrity, and session safety
 - Fixed critical destructive-test regression in v0.9.3: Node test workers now use isolated temporary paths for WhatsApp/Instagram sessions, snapshots, safety state, LID map, growth ledger, and SQLite queue; temporary state is removed at test-process exit.

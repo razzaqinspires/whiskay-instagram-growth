@@ -59,32 +59,32 @@ await send({ type: 'media', mediaType: 'video', media: videoBuffer, viewOnce: tr
 .waform quick              three quick replies
 .waform mixed              quick reply + WebView CTA + recommendation list
 .waform list               live ten-command recommendation list
-.waform url <https://...>  external URL CTA
-.waform webview <https://...> WebView-request CTA
-.waform copy <public-code> CTA Copy
-.waform dialer <+628...>   opens phone dialer only
+.waform url [https://...]  external URL CTA; defaults to WHISKAY GitHub
+.waform webview [https://...] WebView-request CTA; defaults to WHISKAY GitHub
+.waform copy [public-code] CTA Copy; defaults to a harmless demo code
+.waform dialer [+number]   opens phone dialer only; defaults to a reserved demo number
 .waform call audio|video | <name> | <YYYY-MM-DDTHH:mm> | [description]
 .waform event <name> | <start ISO> | <end ISO> | [description]
 .waform catalog             open connected Business catalog
 .waform template            Hydrated Template Buttons (legacy)
 .waform legacy-buttons      ButtonsMessage response-only legacy format
 .waform card                Native Flow card
-.waform ai-rich <title> | <summary> AIRichResponse protobuf
+.waform ai-rich [<title> | <summary>] AIRichResponse protobuf; defaults to a sample
 .waform carousel            2-card CarouselMessage test
 .waform poll                native poll
-.waform contact <name> | <+phone>
-.waform location <lat> | <lon> [| name] [| address]
+.waform contact [<name> | <+phone>] defaults to demo contact
+.waform location [<lat> | <lon> [| name] [| address]] defaults to demo point
 .waform table               AIRichResponse table (fallback text)
-.waform code <language> | <source> AIRichResponse code (fallback fenced text)
-.waform product <productId> | <title> | <description> | <currency> | <price> | <retailerId> | <image>
-.waform media <ptv|voice|gif|viewonce-image|viewonce-video> | <filename>
+.waform code [<language> | <source>] defaults to a JavaScript sample
+.waform product [<productId> | <title> | <description> | <currency> | <price> | <retailerId> | <image>] defaults to the first real Business catalog product
+.waform media [<ptv|voice|gif|viewonce-image|viewonce-video> | <filename>] defaults to PTV demo
 ```
 
-Product demo files must be in `data/whatsapp-products/`; media files must be in `data/whatsapp-media/`. Product sending stays disabled unless `WHISKAY_WHATSAPP_BUSINESS_CATALOG_ENABLED=true` and uses real Business product data. Never use demo/fabricated IDs, prices, product images, or catalog owners.
+Product demo files are resolved from `assets/whatsapp-products/`, `assets/whatsapp-media-demo/`, or `assets/`; media demo files live in `assets/whatsapp-media-demo/`. The resolver validates real paths and does not copy assets into `data/`. Product sending stays disabled unless `WHISKAY_WHATSAPP_BUSINESS_CATALOG_ENABLED=true` and uses real Business product data. Never fabricate product IDs, prices, retailer IDs, or catalog owners. The local demo image is only a sample media upload; the product metadata always comes from the real Business catalog.
 
 ## AI Rich Response is not a normal card
 
-AIRichResponse is a protobuf branch: `Message.botForwardedMessage.message.richResponseMessage`. The message may include `messageContextInfo.botMetadata`, `messageType`, typed `submessages`, `unifiedResponse.data` (JSON data encoded as base64), and a `contextInfo` with the real quoted message. WHISKAY adds a neutral disclaimer/capability metadata, does not set a static bot JID, and does not claim to be Meta AI. It remains protocol/client-dependent; if a client does not render it, use `.waform card` or ordinary text fallback.
+AIRichResponse is a protobuf branch: `Message.botForwardedMessage.message.richResponseMessage`. The message may include `messageContextInfo` (device/thread metadata and 32-byte message secret), `botMetadata`, `messageType`, typed `submessages`, `unifiedResponse.data` (JSON data encoded as base64), and a `contextInfo` with the real quoted message. Single-layout sections use the direct `view_model.primitive` shape from the working AIRich helper. WHISKAY relays the raw protobuf content directly through `relayMessage` rather than `generateWAMessageFromContent`. WHISKAY adds a neutral disclaimer/capability metadata, does not set a static bot JID, and does not claim to be Meta AI. It remains protocol/client-dependent; if a client does not render it, use `.waform card` or ordinary text fallback.
 
 ## Carousel context and envelope
 

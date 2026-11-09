@@ -1,6 +1,6 @@
-# Referensi Scripts WHISKAY v0.10.25
+# Referensi Scripts WHISKAY v0.10.31
 
-`npm start` adalah entrypoint utama. Script inventory hanya mencakup utilitas yang ada dan digunakan. Tidak ada Growth worker, queue-health, order worker, atau provider delivery.
+`npm start` adalah entrypoint utama. Source v0.10.31 tidak lagi menyertakan worker atau queue-health Growth yang telah dipensiunkan.
 
 ## Inventaris aktual
 
@@ -22,6 +22,7 @@
 | `scripts/show-config.mjs` | Menampilkan config tersanitasi | `npm run config:show` |
 | `scripts/package-release.mjs` | Membuat source ZIP bersih di luar root proyek | `npm run package:release` |
 | `scripts/patch-baileys-view-once.mjs` | Patch Baileys rc14 agar mediatype membaca isi View Once yang telah dinormalisasi | Otomatis melalui `npm install`; manual `npm run baileys:patch-viewonce` |
+| `scripts/patch-baileys-media-stream.mjs` | Patch Baileys rc14 agar error stream HTTP media diteruskan ke consumer dan tidak menjadi uncaught exception | Otomatis melalui `npm install`; manual `npm run baileys:patch-media-stream` |
 
 ## Perintah npm aktif
 
@@ -49,7 +50,8 @@
 | `npm run instagram:profile` | Baca profil session aktif |
 | `npm run package:release` | Paket source ZIP |
 | `npm run baileys:patch-viewonce` | Terapkan ulang patch kompatibilitas View Once Baileys rc14 |
+| `npm run baileys:patch-media-stream` | Terapkan ulang patch error propagation download media Baileys rc14 |
 
 ## Aturan pemeliharaan
 
-Setiap file `.mjs` atau `.sh` baru harus memiliki pemanggil yang jelas, dokumentasi di tabel ini, dan tes jika memuat logika. Jangan menambahkan script arsip/backup ke source tree. `npm run docs:check` memastikan semua script aktif terinventarisasi.
+Setiap file `.mjs` atau `.sh` baru harus memiliki pemanggil yang jelas, dokumentasi di tabel ini, dan tes jika memuat logika. Jangan menambahkan script arsip/backup ke source tree. `npm run docs:check` memastikan semua file script yang masih berada di source terinventarisasi. Modul Growth order/provider/queue dan entrypoint worker telah dihapus karena tidak termasuk kontrak Growth organik aktif.

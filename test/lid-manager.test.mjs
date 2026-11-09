@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { attachLidManager } from '../src/lib/lid-manager.mjs';
+import { attachLidManager, pairFromKey } from '../src/lib/lid-manager.mjs';
 
 const silentLogger = { info() {}, warn() {}, debug() {} };
 
@@ -68,4 +68,17 @@ test('LID manager does not rewrite or re-store an unchanged mapping', async () =
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('broadcast status author can be cross-paired from participant LID and remoteJidAlt PN', () => {
+  const pairs = pairFromKey({
+    remoteJid: 'status@broadcast',
+    remoteJidAlt: '6281234567890@s.whatsapp.net',
+    participant: '123456789012345@lid'
+  }, 'test-broadcast');
+  assert.deepEqual(pairs, [{
+    lid: '123456789012345@lid',
+    pn: '6281234567890@s.whatsapp.net',
+    source: 'test-broadcast:broadcast-cross-pair'
+  }]);
 });

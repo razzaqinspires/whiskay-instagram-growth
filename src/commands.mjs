@@ -305,7 +305,7 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
   const downloadMedia = async ({ quoted = false, maxBytes, descriptor: explicitDescriptor } = {}) => {
     const descriptor = explicitDescriptor || (quoted ? messageInfo.quotedMedia : messageInfo.media);
     if (!descriptor) throw new Error(quoted ? 'Pesan kutipan tidak memiliki media.' : 'Pesan ini tidak memiliki lampiran media.');
-    return downloadMediaPayload(descriptor, { maxBytes });
+    return downloadMediaPayload(descriptor, { maxBytes, sock, logger });
   };
   const sender = key.participant || key.remoteJid;
   const antiSpamCommandKey = ownerCodeRequest

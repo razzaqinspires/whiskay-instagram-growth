@@ -1,3 +1,5 @@
+> **STATUS: RETIRED — dokumen historis.** Operasi Growth order/provider/queue tidak tersedia pada source aktif v0.10.31. Jangan mengikuti perintah operasional di bawah ini untuk runtime aktif. Lihat [Project Structure](PROJECT-STRUCTURE.md) untuk kontrak fitur saat ini.
+
 # Arsip Historis — Growth Queue Operations
 
 > **Bukan runbook aktif.** Dokumen ini menjelaskan subsistem promotion-order/queue yang pernah ada pada versi lama. Keputusan produk v0.10.12 menghapus saldo, wallet, order, provider delivery, dan queue dari WHISKAY. Pada v0.10.25 source worker dan script queue telah dihapus. Jangan jalankan perintah atau prosedur pemulihan dari isi historis di bawah.

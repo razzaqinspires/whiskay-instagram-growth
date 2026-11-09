@@ -33,3 +33,12 @@ Source helper menyediakan builder untuk rich response, table, list, code, link, 
 ## Catatan uji
 
 Payload tests memeriksa normalisasi, validasi URL/nomor/koordinat, routing, fallback teks, parser respons, batas carousel/template/poll, dan command owner dispatch. Itu tidak menjamin setiap versi WhatsApp Android/iOS/Web merender semua payload identik. Uji dengan client dan akun nyata tetap diperlukan.
+
+
+## Native Flow transport updates (v0.10.29)
+
+`sendNativeFlow()` now selects the binary flow descriptor from the first native-flow button. Standard quick replies, lists, and common CTA combinations use `native_flow` version 9 with name `mixed`. `cta_catalog` and `send_location` use version 2 with their dedicated names. The `biz` node and private-chat `bot` node are generated exactly once by the serializer; caller-supplied `additionalNodes` may not duplicate them.
+
+`sendNativeCarousel()` prepares card image and video attachments independently using `prepareWAMessageMedia({ image })` or `prepareWAMessageMedia({ video })`. Each card may have one media attachment, not both. The protobuf schema defines the carousel as repeated `InteractiveMessage` cards with `messageVersion` and `carouselCardType`; the implementation uses `HSCROLL_CARDS` (numeric 1) as documented in WAProto.
+
+Relay errors are not converted to text fallback. An ambiguous timeout may occur after server acceptance, so automatic fallback can create duplicate messages. Local validation, media preparation, or payload construction failures may still use the documented text fallback.

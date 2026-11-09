@@ -8,6 +8,7 @@ import { extractMessageText, parseCommand } from './commands.mjs';
 import { parseOwnerCodeRequest } from './lib/owner-code-runtime.mjs';
 import { config } from './config.mjs';
 import { getPollCreationMessage } from './lib/poll-store.mjs';
+import { createMessageDeliveryTracker } from './lib/message-delivery-tracker.mjs';
 
 const { pairingNumber: phoneNumber, sessionDir } = config.whatsapp;
 const logger = pino({
@@ -102,6 +103,11 @@ async function startSocketInternal() {
     getMessage: async key => getPollCreationMessage(key)
   });
   activeSocket = sock;
+
+  // Observe outbound send results plus Baileys status/receipt events. This is
+  // diagnostics only: no automatic resend is performed for ambiguous outcomes.
+  const deliveryTracker = createMessageDeliveryTracker({ logger });
+  deliveryTracker.attach(sock);
 
   // Persist credentials without scanning the key directory. Baileys rotates
   // pre-key files itself; a concurrent stat/chmod sweep can race with that.

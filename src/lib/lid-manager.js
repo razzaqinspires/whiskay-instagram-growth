@@ -66,6 +66,17 @@ export function pairFromKey(key = {}, source = 'message-key') {
     addPair(pairs, participant, key.participantAlt, source);
     addPair(pairs, participant, key.participantPn, source);
     addPair(pairs, participant, key.senderPn, source);
+
+    // Baileys v7 has been observed to omit participantAlt on broadcast/status
+    // messages while providing remoteJidAlt as the author's PN. In this one
+    // specific envelope shape, cross-pair the author participant LID with the
+    // alternate PN. Never apply this to ordinary groups or direct chats.
+    if (typeof key.remoteJid === 'string' && key.remoteJid.endsWith('@broadcast')) {
+      const alternatePn = normalizeUserJid(key.remoteJidAlt);
+      if (isLid(participant) && isPn(alternatePn)) {
+        pairs.push({ lid: participant, pn: alternatePn, source: `${source}:broadcast-cross-pair` });
+      }
+    }
   }
 
   return pairs;

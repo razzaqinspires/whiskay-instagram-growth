@@ -1,4 +1,4 @@
-import { copyFile, mkdir, stat, realpath } from 'node:fs/promises';
+import { stat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { commandActionId } from '../lib/native-flow.mjs';
 import { pollCacheStats } from '../lib/poll-store.mjs';
@@ -32,42 +32,52 @@ function safePrice(value) {
   return priceAmount1000;
 }
 
-async function localMediaPath(rootName, filename, allowedExtensions) {
+async function localMediaPath(rootNames, filename, allowedExtensions) {
   const clean = String(filename || '').trim().replace(/^['"]|['"]$/g, '');
-  if (!clean || path.isAbsolute(clean) || clean.includes('..') || /^(?:https?|file|data):/i.test(clean)) {
-    throw new Error('Gunakan nama file lokal relatif, tanpa URL atau path traversal.');
+  if (!clean || path.isAbsolute(clean) || clean.includes('..') || /^(?:https?|file|data):/i.test(clean) || clean.includes('\0')) {
+    throw new Error('Gunakan nama file lokal relatif dari assets/, tanpa URL atau path traversal.');
   }
-  const root = path.resolve(process.cwd(), 'data', rootName);
-  await mkdir(root, { recursive: true, mode: 0o700 });
-  const realRoot = await realpath(root);
-  const resolved = path.resolve(realRoot, clean);
-  if (!resolved.startsWith(`${realRoot}${path.sep}`)) throw new Error('Path file keluar dari direktori media yang diizinkan.');
-  const actual = await realpath(resolved);
-  const relative = path.relative(realRoot, actual);
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Symlink/path file keluar dari direktori media yang diizinkan.');
-  const info = await stat(actual);
-  if (!info.isFile() || info.size < 1 || info.size > 40 * 1024 * 1024) throw new Error('File harus file reguler 1 byte–40 MiB.');
-  const ext = path.extname(actual).toLowerCase();
-  if (!allowedExtensions.includes(ext)) throw new Error(`Ekstensi file tidak didukung: ${allowedExtensions.join(', ')}`);
-  return actual;
+  const roots = (Array.isArray(rootNames) ? rootNames : [rootNames]).map(name => String(name || '').trim());
+  let lastError;
+  for (const rootName of roots) {
+    const root = path.resolve(process.cwd(), 'assets', rootName);
+    let realRoot;
+    try { realRoot = await realpath(root); }
+    catch (error) { lastError = error; if (error.code === 'ENOENT') continue; throw error; }
+    const resolved = path.resolve(realRoot, clean);
+    const relativeCandidate = path.relative(realRoot, resolved);
+    if (!relativeCandidate || relativeCandidate.startsWith('..') || path.isAbsolute(relativeCandidate)) {
+      throw new Error('Path file keluar dari direktori assets yang diizinkan.');
+    }
+    try {
+      const actual = await realpath(resolved);
+      const relative = path.relative(realRoot, actual);
+      if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Symlink/path file keluar dari direktori assets yang diizinkan.');
+      const info = await stat(actual);
+      if (!info.isFile() || info.size < 1 || info.size > 40 * 1024 * 1024) throw new Error('File harus file reguler 1 byte–40 MiB.');
+      const ext = path.extname(actual).toLowerCase();
+      if (!allowedExtensions.includes(ext)) throw new Error(`Ekstensi file tidak didukung: ${allowedExtensions.join(', ')}`);
+      return actual;
+    } catch (error) {
+      lastError = error;
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
+  if (lastError?.code === 'ENOENT') throw new Error(`File ${clean} tidak ditemukan di assets/${roots.filter(Boolean).join(', assets/') || 'root'}/.`);
+  throw lastError || new Error(`File ${clean} tidak ditemukan di assets/.`);
 }
 
 async function ensureWhatsAppMediaDemo() {
   const sourceRoot = path.resolve(process.cwd(), 'assets', 'whatsapp-media-demo');
-  const targetRoot = path.resolve(process.cwd(), 'data', 'whatsapp-media');
-  await mkdir(targetRoot, { recursive: true, mode: 0o700 });
   const names = [
     'whiskay-demo-ptv.mp4', 'whiskay-demo-voice.ogg', 'whiskay-demo-gif.mp4',
     'whiskay-demo-viewonce-image.jpg', 'whiskay-demo-viewonce-video.mp4'
   ];
   for (const name of names) {
-    const target = path.join(targetRoot, name);
-    try { await stat(target); } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-      await copyFile(path.join(sourceRoot, name), target);
-    }
+    const file = await localMediaPath('whatsapp-media-demo', name, [path.extname(name).toLowerCase()]);
+    if (!file.startsWith(`${sourceRoot}${path.sep}`)) throw new Error('Media demo berada di luar assets/whatsapp-media-demo/.');
   }
-  return targetRoot;
+  return sourceRoot;
 }
 
 function withTimeout(promise, timeoutMs, message) {
@@ -81,7 +91,7 @@ function withTimeout(promise, timeoutMs, message) {
 
 function parseMediaArguments(value) {
   const raw = String(value || '').trim();
-  if (!raw) throw new Error('Format: .waform media <ptv|voice|gif|viewonce-image|viewonce-video> [filename].');
+  if (!raw) return { action: 'ptv', filename: null };
   if (raw.includes('|')) {
     const [action, ...fileParts] = raw.split('|').map(part => part.trim());
     return { action: action.toLowerCase(), filename: fileParts.join('|').trim() || null };
@@ -105,30 +115,32 @@ const interfaceHelp = [
   '.waform list — daftar command live, single_select',
   '.waform url <https://...> — CTA URL eksternal',
   '.waform webview <https://...> — CTA URL + webview_interaction',
-  '.waform copy <kode publik> — CTA Copy; jangan salin rahasia/token',
-  '.waform dialer <+628...> — CTA Call, membuka dialer telepon',
+  '.waform copy [kode publik] — CTA Copy; default demo code, jangan salin rahasia/token',
+  '.waform dialer [+nomor] — CTA Call, default nomor demo reserved; membuka dialer telepon',
   '.waform call audio|video | nama acara | YYYY-MM-DDTHH:mm | [deskripsi] — EventMessage dengan join-link call',
   '.waform event <nama> | <start ISO> | <end ISO> | <deskripsi> — EventMessage native',
   '.waform catalog — CTA Catalog; bukan katalog produk palsu',
+  '.waform send-location — Native Flow meminta lokasi pengguna (eksperimental)',
   '.waform template — legacy Hydrated Template Buttons (maks. 3 tombol; quick reply/URL/call)',
   '.waform legacy-buttons — ButtonsMessage lama, 1–3 quick_reply saja; tidak sama dengan Native Flow',
   '.waform card — Native Flow card interaktif biasa',
-  '.waform ai-rich <judul> | <ringkasan> — AIRichResponse protobuf eksperimental',
+  '.waform ai-rich [<judul> | <ringkasan>] — AIRichResponse protobuf eksperimental, default sample',
   '.waform ai-card — alias ai-rich; bukan identitas Meta AI',
   '.waform carousel — InteractiveMessage.carouselMessage + contextInfo + biz/bot additionalNodes',
   '.waform carousel forwarded — uji indikator forwarded context (tanpa identitas bot pihak ketiga)',
   '.waform ai-rich html — AIRichResponse + embedded_screens HTML untuk WhatsApp Android/iOS',
   '.waform poll — native WhatsApp poll',
-  '.waform contact <nama> | <+nomor> — vCard',
-  '.waform location <lat> | <lon> [| nama] [| alamat] — titik statis',
+  '.waform contact [<nama> | <+nomor>] — vCard demo default',
+  '.waform location [<lat> | <lon> [| nama] [| alamat]] — lokasi demo default',
   '.waform table — AIRichResponse table (fallback teks jika tidak dirender client)',
-  '.waform code <language> | <source> — code block AIRichResponse (fallback fenced text)',
+  '.waform code [<language> | <source>] — code block AIRichResponse, default JavaScript sample',
   '.waform product catalog — baca 10 item katalog Business yang benar-benar terhubung',
   '.waform product info <id> — lihat metadata produk katalog',
-  '.waform product <id> | <nama> | <deskripsi> | <currency> | <harga> | <retailer-id> | <gambar-lokal> — kirim ProductMessage riil',
+  '.waform product — otomatis memilih produk pertama dari katalog Business riil dan memakai gambar demo dari assets/',
+  '.waform product <id> | <nama> | <deskripsi> | <currency> | <harga> | <retailer-id> | <gambar> — metadata manual (tetap perlu katalog riil)',
   '.waform media <ptv|viewonce-image|viewonce-video|voice|gif> [filename] — filename opsional, memakai demo assets bila kosong',
   '',
-  'Media demo disalin otomatis dari assets/whatsapp-media-demo/ ke data/whatsapp-media/ saat command pertama kali dipakai. Product image harus ada di data/whatsapp-products/.' ,
+  'Media demo dibaca langsung dari assets/whatsapp-media-demo/ dan tidak disalin ke data/. Product image dicari di assets/whatsapp-products/, assets/whatsapp-media-demo/, atau assets/.' ,
   'Product perlu akun/metadata Business yang valid dan data katalog nyata. Call audio/video memakai EventMessage; CTA Call hanya membuka dialer.',
   'AIRichResponse dan carousel adalah payload eksperimental/tergantung client. Relay ACK bukan bukti render atau delivery.'
 ].join('\n');
@@ -136,6 +148,50 @@ const interfaceHelp = [
 export default {
   name: 'whatsapp-tools',
   commands: [
+    {
+      name: 'wadelivery', aliases: ['wa-delivery', 'delivery-status'], category: 'WhatsApp Diagnostics',
+      usage: '[messageId]',
+      description: 'Periksa status relay, server ACK, delivery, read, dan played dari pesan keluar WHISKAY',
+      async execute({ args = [], sock, reply }) {
+        const tracker = sock?.whiskayDelivery;
+        if (!tracker) return reply('Delivery tracker belum terpasang pada socket aktif.');
+        const messageId = String(args[0] || '').trim();
+        if (messageId) {
+          const record = tracker.get(messageId);
+          if (!record) return reply(`Message ID ${messageId} tidak ditemukan pada cache 24 jam terakhir.`);
+          const receiptLines = Object.entries(record.receipts || {}).map(([jid, receipt]) =>
+            `• ${jid}: delivered=${receipt.receivedAt ? 'yes' : 'no'}, read=${receipt.readAt ? 'yes' : 'no'}, played=${receipt.playedAt ? 'yes' : 'no'}`
+          );
+          return reply([
+            '━━ WHISKAY DELIVERY DETAIL ━━',
+            `ID: ${record.id}`,
+            `Status: ${record.status}`,
+            `Transport: ${record.source}`,
+            `Updated: ${new Date(record.updatedAt).toISOString()}`,
+            `Receipts: ${Object.keys(record.receipts || {}).length}`,
+            ...receiptLines,
+            record.relayError ? `Relay note: ${record.relayError}` : '',
+            '',
+            'SERVER_ACK hanya berarti server WhatsApp menerima relay; DELIVERY_ACK/READ/PLAYED adalah status lanjutan.'
+          ].filter(Boolean).join('\n'));
+        }
+        const stats = tracker.stats();
+        const recent = tracker.recent(8);
+        return reply([
+          '━━ WHISKAY DELIVERY MONITOR ━━',
+          `Tracked: ${stats.tracked}`,
+          `Events: updates=${stats.updates}, receipts=${stats.receipts}`,
+          `Transport errors: ${stats.relayErrors}`,
+          `Status: ${Object.entries(stats.byStatus).map(([name, count]) => `${name}=${count}`).join(' · ') || 'belum ada'}`,
+          '',
+          'Pesan terbaru:',
+          ...(recent.length ? recent.map(item => `${item.status} · ${item.id}`) : ['Belum ada pesan keluar tercatat.']),
+          '',
+          'Detail: .wadelivery <messageId>',
+          'Status bersifat best-effort; tidak semua chat mengirim receipt individual.'
+        ].join('\n'));
+      }
+    },
     {
       name: 'poll', aliases: ['polling'], category: 'WhatsApp Interfaces',
       usage: '[multi] "pertanyaan" | opsi 1 | opsi 2 [| opsi 3]',
@@ -172,7 +228,7 @@ export default {
     },
     {
       name: 'waform', aliases: ['waui', 'wabuttons'], category: 'WhatsApp Interfaces',
-      usage: '[menu|quick|mixed|list|url|webview|copy|dialer|call|event|catalog|template|legacy-buttons|card|ai-rich|carousel|poll|contact|location|table|code|product|media]',
+      usage: '[menu|quick|mixed|list|url|webview|copy|dialer|send-location|call|event|catalog|template|legacy-buttons|card|ai-rich|carousel|poll|contact|location|table|code|product|media]',
       description: 'Uji format pesan resmi Baileys: Native Flow, list, carousel, AIRichResponse, template, event/call, product dan media',
       async execute({ args = [], rawArgs = '', reply, send, sendInteractive, sendNativeButtons, sendCarousel, sendRichCard, sendAIRich, sendTemplateButtons, sendLegacyButtonMessage, sendPoll, sendContact, sendLocation, sendProduct, sendEvent, sendMedia, pluginLoader, sock }) {
         const kind = String(args[0] || '').toLowerCase();
@@ -180,7 +236,7 @@ export default {
         if (!kind || kind === 'menu' || kind === 'help') {
           const entries = [
             ['quick', '3 Quick Reply'], ['mixed', 'Mixed Native Flow'], ['list', 'Single Select List'],
-            ['url', 'CTA URL'], ['webview', 'CTA WebView'], ['copy', 'CTA Copy'], ['dialer', 'CTA Call / dialer'],
+            ['url', 'CTA URL'], ['webview', 'CTA WebView'], ['copy', 'CTA Copy'], ['dialer', 'CTA Call / dialer'], ['send-location', 'Request user location'],
             ['call', 'EventMessage + scheduled call'], ['event', 'EventMessage'], ['catalog', 'WhatsApp Catalog CTA'],
             ['template', 'Hydrated Template (legacy)'], ['legacy-buttons', 'ButtonsMessage (legacy)'],
             ['card', 'Native Flow card'], ['ai-rich', 'AIRichResponse protobuf'], ['carousel', 'CarouselMessage'],
@@ -228,25 +284,28 @@ export default {
         }
 
         if (kind === 'url' || kind === 'webview') {
+          const target = value || 'https://github.com/razzaqinspires';
           let url;
-          try { url = new URL(value); } catch { return reply('Format: .waform url|webview <https://example.com>'); }
+          try { url = new URL(target); } catch { return reply('Format: .waform url|webview <https://example.com>'); }
           if (url.protocol !== 'https:' || url.username || url.password) return reply('URL harus HTTPS dan tidak boleh menyertakan username/password.');
           return sendNativeButtons({ title: kind === 'webview' ? 'CTA · WEBVIEW' : 'CTA · URL', body: kind === 'webview' ? 'Mengirim webview_interaction. Sebagian client dapat membuka browser biasa jika WebView tidak didukung.' : 'Membuka URL HTTPS melalui client WhatsApp.', buttons: [{ type: kind === 'webview' ? 'webview_url' : 'cta_url', title: 'Buka URL', url: url.toString(), webview_interaction: kind === 'webview' }] });
         }
 
         if (kind === 'copy') {
-          if (!value || value.length > 120 || /(password|passwd|secret|api[_-]?key|access[_-]?token|bearer|private[_-]?key)/i.test(value)) return reply('Format: .waform copy <kode/ID publik maksimal 120 karakter>. Token/rahasia ditolak.');
-          return sendNativeButtons({ title: 'CTA · COPY', body: 'Menyalin kode publik yang diberikan.', buttons: [{ type: 'cta_copy', title: 'Salin kode', id: 'whiskay-copy-demo', copy_code: value }] });
+          const copyCode = value || 'WHISKAY-DEMO-2026';
+          if (copyCode.length > 120 || /(password|passwd|secret|api[_-]?key|access[_-]?token|bearer|private[_-]?key)/i.test(copyCode)) return reply('Format: .waform copy <kode/ID publik maksimal 120 karakter>. Token/rahasia ditolak.');
+          return sendNativeButtons({ title: 'CTA · COPY', body: 'Menyalin kode publik contoh.', buttons: [{ type: 'cta_copy', title: 'Salin kode', id: 'whiskay-copy-demo', copy_code: copyCode }] });
         }
 
         if (kind === 'dialer') {
-          if (!value) return reply('Format: .waform dialer <+628xxxxxxxxxx>. Ini hanya membuka aplikasi telepon, bukan membuat panggilan WhatsApp.');
-          return sendNativeButtons({ title: 'CTA · PHONE DIALER', body: `Membuka dialer perangkat untuk ${value}.`, buttons: [{ type: 'cta_call', title: 'Buka dialer', phone: value }] });
+          const phone = value || '+19995550123';
+          return sendNativeButtons({ title: 'CTA · PHONE DIALER', body: `Contoh CTA yang membuka dialer perangkat untuk ${phone}; tidak membuat panggilan otomatis.`, buttons: [{ type: 'cta_call', title: 'Buka dialer', phone }] });
         }
 
         if (kind === 'call') {
           try {
-            const [callType, name, startISO, description = ''] = parsePipeArgs(value, 3, '.waform call audio|video | nama acara | YYYY-MM-DDTHH:mm [| deskripsi]');
+            const defaultStart = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+            const [callType, name, startISO, description = ''] = value ? parsePipeArgs(value, 3, '.waform call audio|video | nama acara | YYYY-MM-DDTHH:mm [| deskripsi]') : ['audio', 'WHISKAY Demo Call', defaultStart, 'Contoh scheduled call EventMessage dari WHISKAY.'];
             if (!['audio', 'video'].includes(callType.toLowerCase())) throw new Error('Jenis call harus audio atau video.');
             const sent = await sendEvent({ name, startDate: startISO, description, call: callType.toLowerCase() });
             return reply(`Event call ${callType.toUpperCase()} dibuat sebagai EventMessage.\nID: ${sent?.key?.id || 'terkirim'}\nBaileys createCallLink berhasil diminta untuk membuat join token acara.`);
@@ -255,7 +314,9 @@ export default {
 
         if (kind === 'event') {
           try {
-            const [name, startISO, endISO, description = ''] = parsePipeArgs(value, 3, '.waform event <nama> | <start ISO> | <end ISO> | [deskripsi]');
+            const defaultStart = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            const defaultEnd = new Date(defaultStart.getTime() + 60 * 60 * 1000);
+            const [name, startISO, endISO, description = ''] = value ? parsePipeArgs(value, 3, '.waform event <nama> | <start ISO> | <end ISO> | [deskripsi]') : ['WHISKAY Demo Event', defaultStart.toISOString(), defaultEnd.toISOString(), 'Contoh event terjadwal dari WHISKAY.'];
             const sent = await sendEvent({ name, startDate: startISO, endDate: endISO, description });
             return reply(`EventMessage dibuat.\nID: ${sent?.key?.id || 'terkirim'}\nStart: ${startISO}\nEnd: ${endISO}`);
           } catch (error) { return reply(error.message); }
@@ -263,6 +324,10 @@ export default {
 
         if (kind === 'catalog') {
           return sendNativeButtons({ title: 'WHATSAPP BUSINESS CATALOG', body: 'CTA Catalog meminta client membuka katalog Business yang benar-benar terhubung. Ini bukan product message dan tidak menciptakan katalog/produk baru.', buttons: [{ type: 'cta_catalog', title: 'Buka katalog' }] });
+        }
+
+        if (kind === 'send-location' || kind === 'request-location') {
+          return sendNativeButtons({ title: 'WHISKAY · REQUEST LOCATION', body: 'Contoh Native Flow khusus untuk meminta pengguna membagikan lokasi melalui antarmuka WhatsApp. Tidak mengambil lokasi secara diam-diam.', footer: 'Native Flow · send_location · experimental', buttons: [{ type: 'send_location', title: 'Bagikan lokasi' }] });
         }
 
         if (kind === 'legacy-buttons' || kind === 'button-message') {
@@ -298,7 +363,7 @@ export default {
               const sent = await sendAIRich({ title: 'WHISKAY · HTML RESPONSE', text: 'Buka preview untuk melihat embedded HTML screen.', htmlTitle: 'WHISKAY Preview', html, trustedSources: trustedDomain ? [trustedDomain] : [], forwardedContext: /\bforwarded\b/i.test(value) });
               return reply(`AIRichResponse HTML diserahkan ke Baileys. ID: ${sent?.key?.id || 'terkirim'}.\nEmbedded screen hanya didukung pada client WhatsApp mobile yang kompatibel; WA Web desktop dapat menampilkan fallback.\nTrusted domain: ${trustedDomain || '(belum diatur; HTML tetap eksperimental)'}. Tidak ada botJid, signature, atau atribusi Meta AI palsu.`);
             }
-            const [title = 'Ringkasan WHISKAY', summary = 'AIRichResponse protobuf eksperimental. Ini bukan identitas Meta AI dan rendering client belum dijamin.'] = value ? parsePipeArgs(value, 2, '.waform ai-rich <judul> | <ringkasan>') : [];
+            const [title = 'WHISKAY · AI RICH RESPONSE', summary = 'Ini adalah contoh AIRichResponse terstruktur dari WHISKAY. Pesan ini memakai protobuf richResponseMessage dan unified response sections; tampilan akhir bergantung pada versi WhatsApp penerima.'] = value ? parsePipeArgs(value, 2, '.waform ai-rich <judul> | <ringkasan>') : [];
             return await sendAIRich({ title, text: summary });
           } catch (error) { return reply(`AIRichResponse gagal: ${error.message}\nPayload ini eksperimental dan tidak memakai botJid/identitas Meta AI palsu.`); }
         }
@@ -323,12 +388,12 @@ export default {
         }
 
         if (kind === 'contact') {
-          try { const [name, phone] = parsePipeArgs(value, 2, '.waform contact <nama> | <+nomor>'); return sendContact({ name, phone }); }
+          try { const [name, phone] = value ? parsePipeArgs(value, 2, '.waform contact <nama> | <+nomor>') : ['WHISKAY Demo Contact', '+19995550123']; return sendContact({ name, phone }); }
           catch (error) { return reply(error.message); }
         }
 
         if (kind === 'location') {
-          try { const [latitude, longitude, name = '', address = ''] = parsePipeArgs(value, 2, '.waform location <latitude> | <longitude> [| nama] [| alamat]'); return sendLocation({ latitude, longitude, name, address }); }
+          try { const [latitude, longitude, name = '', address = ''] = value ? parsePipeArgs(value, 2, '.waform location <latitude> | <longitude> [| nama] [| alamat]') : ['3.5952', '98.6722', 'WHISKAY Demo Point', 'Medan, Sumatera Utara']; return sendLocation({ latitude, longitude, name, address }); }
           catch (error) { return reply(error.message); }
         }
 
@@ -341,7 +406,7 @@ export default {
         }
 
         if (kind === 'code') {
-          if (value.toLowerCase() === 'sample') {
+          if (!value || value.toLowerCase() === 'sample') {
             return sendAIRich({ title: 'WHISKAY · CODE RESPONSE DEMO', language: 'javascript', code: 'const profile = {\n  platform: "WHISKAY",\n  mode: "owner-only"\n};\nconsole.log(profile);' });
           }
           try {
@@ -386,12 +451,38 @@ export default {
               if (rows.length && typeof sendInteractive === 'function') return sendInteractive({ title: 'WHISKAY · BUSINESS CATALOG', body: `Ditemukan ${products.length} produk dari katalog yang dikembalikan Baileys. Pilih item untuk melihat metadata.`, footer: 'Read-only · Real catalog data', buttons: [{ type: 'single_select', title: 'Produk Business', sections: [{ title: 'Catalog items', rows }] }] });
               return reply(`Ditemukan ${products.length} produk katalog. Gunakan .waform product info <id> untuk detail.`);
             }
-            const [productId, title, description, currencyCode, price, retailerId, imageName] = parsePipeArgs(value, 7, '.waform product <productId> | <title> | <description> | <currency> | <price> | <retailerId> | <image filename>');
-            const image = await localMediaPath('whatsapp-products', imageName, ['.jpg', '.jpeg', '.png', '.webp']);
-            if (process.env.WHISKAY_WHATSAPP_BUSINESS_CATALOG_ENABLED !== 'true') throw new Error('ProductMessage belum diaktifkan. Set WHISKAY_WHATSAPP_BUSINESS_CATALOG_ENABLED=true pada .env setelah memverifikasi sesi Business.');
+            if (process.env.WHISKAY_WHATSAPP_BUSINESS_CATALOG_ENABLED !== 'true') throw new Error('ProductMessage belum diaktifkan. Set WHISKAY_WHATSAPP_BUSINESS_CATALOG_ENABLED=true setelah memastikan akun pengirim adalah WhatsApp Business dan katalog produk tersedia.');
             if (!businessOwnerJid) throw new Error('Identitas socket WhatsApp Business belum tersedia.');
-            const sent = await sendProduct({ catalogEnabled: true, product: { productId, title, description, currencyCode, priceAmount1000: safePrice(price), retailerId, productImage: image }, businessOwnerJid, body: 'Product data supplied by owner', footer: 'WhatsApp Business Product' });
-            return reply(`ProductMessage diserahkan ke Baileys.\nID: ${sent?.key?.id || 'terkirim'}\nMetadata dan gambar harus cocok dengan katalog Business milik akun ini. ACK bukan bukti render.`);
+            let product;
+            let imageName = 'whiskay-demo-viewonce-image.jpg';
+            if (value) {
+              const [productId, title, description, currencyCode, price, retailerId, suppliedImageName] = parsePipeArgs(value, 7, '.waform product <productId> | <title> | <description> | <currency> | <price> | <retailerId> | <image filename>');
+              imageName = suppliedImageName;
+              product = { productId, title, description, currencyCode, priceAmount1000: safePrice(price), retailerId };
+            } else {
+              if (typeof sock?.getCatalog !== 'function') throw new Error('Socket tidak menyediakan getCatalog; sample otomatis membutuhkan katalog WhatsApp Business yang nyata.');
+              const catalogResult = await withTimeout(
+                sock.getCatalog({ jid: businessOwnerJid, limit: 10 }),
+                20_000,
+                'getCatalog timeout setelah 20 detik. Periksa koneksi dan katalog Business.'
+              );
+              const first = (Array.isArray(catalogResult?.products) ? catalogResult.products : Array.isArray(catalogResult) ? catalogResult : [])[0];
+              if (!first) throw new Error('Katalog Business kosong. Tambahkan minimal satu produk di WhatsApp Business; WHISKAY tidak membuat ID produk fiktif.');
+              const productId = String(first.productId || first.id || '').trim();
+              const title = String(first.title || first.name || '').trim();
+              const currencyCode = String(first.currencyCode || first.currency || '').trim().toUpperCase();
+              const rawPrice = first.priceAmount1000 ?? (first.price !== undefined ? safePrice(first.price) : null);
+              if (!productId || !title || !/^[A-Z]{3}$/.test(currencyCode) || !Number.isSafeInteger(Number(rawPrice))) {
+                throw new Error('Produk katalog pertama tidak memiliki productId, title, currencyCode, atau priceAmount1000 yang valid. Gunakan .waform product catalog untuk memeriksa metadata.');
+              }
+              product = {
+                productId, title, description: String(first.description || ''), currencyCode,
+                priceAmount1000: Number(rawPrice), retailerId: String(first.retailerId || '')
+              };
+            }
+            const image = await localMediaPath(['whatsapp-products', 'whatsapp-media-demo', ''], imageName, ['.jpg', '.jpeg', '.png', '.webp']);
+            const sent = await sendProduct({ catalogEnabled: true, product: { ...product, productImage: image }, businessOwnerJid, body: 'WHISKAY ProductMessage sample · catalog-backed', footer: 'WhatsApp Business Product' });
+            return reply(`ProductMessage diserahkan ke Baileys.\nProduk: ${product.title} (${product.productId})\nGambar: ${path.basename(image)}\nID: ${sent?.key?.id || 'terkirim'}\nACK bukan bukti delivery atau render.`);
           } catch (error) { return reply(`Product Message gagal: ${error.message}\nWHISKAY tidak membuat ID katalog, harga, atau data produk fiktif.`); }
         }
 
@@ -408,7 +499,7 @@ export default {
             const selected = mapping[mediaAction];
             if (!selected) throw new Error('Aksi media harus ptv, voice, gif, viewonce-image, atau viewonce-video.');
             await ensureWhatsAppMediaDemo();
-            const localPath = await localMediaPath('whatsapp-media', suppliedFilename || selected.sample, selected.ext);
+            const localPath = await localMediaPath('whatsapp-media-demo', suppliedFilename || selected.sample, selected.ext);
             const sent = await sendMedia(selected.type, localPath, {
               ptv: selected.type === 'ptv', viewOnce: Boolean(selected.viewOnce), ptt: selected.type === 'voice',
               mimetype: selected.type === 'voice' ? 'audio/ogg; codecs=opus' : undefined,

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sendViewOnceMedia } from '../src/lib/baileys-media-compat.mjs';
 import { patchBaileysViewOnceSource } from '../scripts/patch-baileys-view-once.mjs';
+import { patchBaileysMediaStreamSource } from '../scripts/patch-baileys-media-stream.mjs';
 
 const sourceFixture = `import { normalizeMessageContent } from '../Utils';\nconst mediaType = getMediaType(message);\n`;
 
@@ -40,4 +41,21 @@ test('View Once transport relays generated media with the meta view_once node an
   assert.equal(calls.length, 1);
   assert.equal(calls[0][2].additionalNodes[0].tag, 'meta');
   assert.deepEqual(calls[0][2].additionalNodes[0].attrs, { view_once: 'true' });
+});
+
+
+test('Baileys media patch forwards source stream errors to the decrypting output stream', () => {
+  const source = `const output = new Transform({ transform(chunk, enc, callback) { callback(null, chunk); } });\n\treturn fetched.pipe(output, { end: true });`;
+  const patched = patchBaileysMediaStreamSource(source);
+  assert.equal(patched.changed, true);
+  assert.match(patched.source, /fetched\.on\('error', error => output\.destroy\(error\)\)/);
+  assert.match(patched.source, /return fetched\.pipe\(output, \{ end: true \}\)/);
+  const again = patchBaileysMediaStreamSource(patched.source);
+  assert.equal(again.changed, false);
+  assert.equal(again.reason, 'already-patched');
+});
+
+test('Baileys media patch refuses missing or ambiguous source targets', () => {
+  assert.throws(() => patchBaileysMediaStreamSource('return output;'), /ditemukan 0 target/i);
+  assert.throws(() => patchBaileysMediaStreamSource('return fetched.pipe(output, { end: true });\nreturn fetched.pipe(output, { end: true });'), /ditemukan 2 target/i);
 });

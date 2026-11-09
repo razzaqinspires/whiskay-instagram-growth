@@ -1,6 +1,6 @@
 # WHISKAY — Private WhatsApp Runtime & Organic Instagram Growth
 
-**Versi 0.10.26 — Owner Code Runtime & Go · WhatsApp, TikTok & Organic Growth**  
+**Versi 0.10.31 — WhatsApp Message Engine Integration · Delivery Reliability · Native Flow · Media Recovery · Owner Runtime & Organic Growth**  
 **Tanggal:** 9 November 2026  
 **Runtime:** Node.js 22.5–22.x · npm 10+ · Python 3.11+ untuk adapter Instagram
 
@@ -22,6 +22,10 @@ WHISKAY adalah proyek eksperimental private/self berbasis WhatsApp Baileys. Sist
 
 Detail penghapusan fitur finansial dan migrasi data legacy: [Removed Financial Concepts](docs/REMOVED-FINANCIAL-CONCEPTS-v0.10.12.md).
 
+Dokumentasi rilis terbaru: [Part 5 Message Engine Integration Research](docs/research/WHATSAPP-MESSAGE-ENGINE-INTEGRATION-v0.10.31.md), [Release Notes v0.10.31](docs/releases/RELEASE-NOTES-v0.10.31.md), [Upgrade v0.10.31](docs/upgrades/UPGRADE-v0.10.31.md), dan [QA v0.10.31](docs/qa/QA-REPORT-v0.10.31.md). Riwayat Part 4: [Baileys Delivery Research](docs/research/BAILEYS-DELIVERY-RESEARCH-v0.10.30.md), [Release Notes v0.10.30](docs/releases/RELEASE-NOTES-v0.10.30.md), [Upgrade v0.10.30](docs/upgrades/UPGRADE-v0.10.30.md), dan [QA v0.10.30](docs/qa/QA-REPORT-v0.10.30.md). Riwayat Part 3: [Baileys Interactive Research](docs/research/BAILEYS-INTERACTIVE-RESEARCH-v0.10.29.md), [Release Notes v0.10.29](docs/releases/RELEASE-NOTES-v0.10.29.md), [Upgrade v0.10.29](docs/upgrades/UPGRADE-v0.10.29.md), dan [QA v0.10.29](docs/qa/QA-REPORT-v0.10.29.md). Riwayat Part 2: [Baileys Media Research v0.10.28](docs/research/BAILEYS-MEDIA-RESEARCH-v0.10.28.md), [Release Notes v0.10.28](docs/releases/RELEASE-NOTES-v0.10.28.md), [Upgrade v0.10.28](docs/upgrades/UPGRADE-v0.10.28.md), dan [QA v0.10.28](docs/qa/QA-REPORT-v0.10.28.md).
+
+Dokumentasi integrasi dan source governance: [WhatsApp Message Engine Research v0.10.31](docs/research/WHATSAPP-MESSAGE-ENGINE-INTEGRATION-v0.10.31.md), [Project Structure](docs/PROJECT-STRUCTURE.md), [Scripts Reference](docs/guides/SCRIPTS-REFERENCE.md), [Research Register](docs/RESEARCH-REGISTER.md), dan [Growth Queue Operations — retired historical reference](docs/GROWTH-QUEUE-OPERATIONS.md).
+
 ## 2. Persyaratan dan instalasi
 
 - Linux, Debian proot, atau Termux dengan lingkungan Node yang sesuai.
@@ -30,8 +34,8 @@ Detail penghapusan fitur finansial dan migrasi data legacy: [Removed Financial C
 - Akun WhatsApp owner untuk pairing Baileys.
 
 ```bash
-unzip whiskay-instagram-growth-v0.10.26.zip
-cd whiskay-instagram-growth-v0.10.26
+unzip whiskay-instagram-growth-v0.10.30.zip
+cd whiskay-instagram-growth-v0.10.30
 cp .env.example .env
 cp config/app.example.json config/app.json
 nvim config/app.json
@@ -209,7 +213,7 @@ Semua plugin memakai adapter `send()` yang sama. Router memilih transport berdas
 - Media mencakup image, video, PTV/video note, audio, voice/PTT, document, sticker, GIF, dan view-once image/video; selain itu terdapat vCard, lokasi statis, tabel/code lewat AIRichResponse dengan text fallback, serta EventMessage/ProductMessage tersendiri.
 - Product Message hanya layak bila tersedia akun Business serta metadata produk/katalog WhatsApp yang sah. WHISKAY tidak membuat produk, stok, harga, identitas AI, payment, status, atau live-location palsu.
 
-Command pemeriksaan: `.wacapabilities`, `.waform` dan `.waform help`, `.waform mixed`, `.waform card`, `.waform ai-rich`, `.waform ai-rich html`, `.waform carousel`, `.waform template`, `.waform product catalog`, dan `.waform media ptv|voice|gif|viewonce-image|viewonce-video`. Media demo disediakan di `assets/whatsapp-media-demo/` dan disalin otomatis ke `data/whatsapp-media/` saat dipakai. View Once memakai `additionalNodes` meta `view_once=true` serta patch mediatype Baileys rc14 otomatis saat `npm install`. Template legacy menggunakan raw proto relay untuk menghindari `Invalid media type`; Carousel dan AIRich tetap client-dependent. Lihat [WhatsApp Message Lab v0.10.22](docs/WHATSAPP-MESSAGE-LAB-v0.10.22.md), [WhatsApp Message Router](docs/WHATSAPP-MESSAGE-ROUTER.md), [Native Flow](docs/NATIVE-FLOW.md), dan [Baileys Serializer Reference](docs/BAILEYS-SERIALIZER-REFERENCE.md).
+Command pemeriksaan: `.wacapabilities`, `.waform` dan `.waform help`, `.waform mixed`, `.waform card`, `.waform ai-rich`, `.waform ai-rich html`, `.waform carousel`, `.waform template`, `.waform product catalog`, dan `.waform media ptv|voice|gif|viewonce-image|viewonce-video`. Media demo dibaca langsung dari `assets/whatsapp-media-demo/` tanpa disalin ke `data/`; `.waform` menyediakan payload default untuk tiap sample utama. View Once memakai `additionalNodes` meta `view_once=true` serta patch mediatype Baileys rc14 otomatis saat `npm install`. Template legacy menggunakan raw proto relay untuk menghindari `Invalid media type`; Carousel dan AIRich tetap client-dependent. v0.10.29 memperbaiki descriptor binary Native Flow untuk `cta_catalog` dan `send_location`, menambahkan sample `.waform send-location`, mendukung image/video per carousel card, dan memisahkan fallback build-error dari relay-error agar tidak mengirim pesan teks duplikat ketika status relay ambigu. Lihat [WhatsApp Message Lab v0.10.22](docs/WHATSAPP-MESSAGE-LAB-v0.10.22.md), [WhatsApp Message Router](docs/WHATSAPP-MESSAGE-ROUTER.md), [Native Flow](docs/NATIVE-FLOW.md), [Baileys Interactive Research v0.10.29](docs/research/BAILEYS-INTERACTIVE-RESEARCH-v0.10.29.md), [Release Notes v0.10.29](docs/releases/RELEASE-NOTES-v0.10.29.md), [Upgrade v0.10.29](docs/upgrades/UPGRADE-v0.10.29.md), [QA v0.10.29](docs/qa/QA-REPORT-v0.10.29.md), dan [Baileys Serializer Reference](docs/BAILEYS-SERIALIZER-REFERENCE.md).
 
 ## 10. Video HD lokal — preset Remini-style
 
@@ -324,13 +328,13 @@ Semua `.mjs`/`.sh` yang dipertahankan harus tercatat di [Scripts Reference](docs
 | `npm run security:check` | Audit dependency; perlu akses registry npm |
 | `npm run package:release` | Membuat source ZIP bersih di luar root proyek |
 
-Nama arsip dibuat otomatis dari `package.json`: `<name>-v<version>.zip` (saat ini `whiskay-instagram-growth-v0.10.26.zip`). Folder utama di dalam ZIP memakai nama yang sama. `.env`, `config/app.json`, session, database, dan runtime data tidak ikut dipaketkan. Jangan mengganti nama arsip secara manual menjadi nama yang tidak cocok dengan versi source.
+Nama arsip dibuat otomatis dari `package.json`: `<name>-v<version>.zip` (saat ini `whiskay-instagram-growth-v0.10.29.zip`). Folder utama di dalam ZIP memakai nama yang sama. `.env`, `config/app.json`, session, database, dan runtime data tidak ikut dipaketkan. Jangan mengganti nama arsip secara manual menjadi nama yang tidak cocok dengan versi source.
 
-QA tidak menguji koneksi live WhatsApp/Instagram/provider TikTok/AI gateway, tidak menguji hasil pertumbuhan follower, dan tidak menjalankan tindakan Instagram. Referral menggunakan mock atau konfigurasi backend yang terpisah. Growth order/wallet/queue provider telah dihapus; campaign dan analitik organik tetap aktif.
+QA tidak menguji koneksi live WhatsApp/Instagram/provider TikTok/AI gateway, tidak menguji hasil pertumbuhan follower, dan tidak menjalankan tindakan Instagram. Referral menggunakan mock atau konfigurasi backend yang terpisah. Tidak ada order/wallet/provider queue yang menjadi fitur runtime aktif; campaign dan analitik organik tetap aktif. Audit source upload v0.10.27 menemukan beberapa file legacy order/SQLite queue masih tertinggal meski sudah dinyatakan dihapus pada catatan v0.10.25. File tersebut tidak dijalankan dan akan dibersihkan pada Part 2; statusnya dicatat di [Project Structure](docs/PROJECT-STRUCTURE.md) dan [QA Report v0.10.27](docs/qa/QA-REPORT-v0.10.27.md).
 
 ## 18. Dokumentasi lengkap
 
-Dokumentasi historis antrean dan riset promosi dipertahankan sebagai arsip, bukan runbook aktif. Growth worker, SMM provider, order, dan wallet tidak menjadi bagian runtime v0.10.26. Gunakan [Removed Financial Concepts](docs/REMOVED-FINANCIAL-CONCEPTS-v0.10.12.md) sebagai batas fitur aktif.
+Dokumentasi historis antrean dan riset promosi dipertahankan sebagai arsip, bukan runbook aktif. Growth worker, SMM provider, order, dan wallet tidak menjadi bagian runtime v0.10.27. Gunakan [Removed Financial Concepts](docs/REMOVED-FINANCIAL-CONCEPTS-v0.10.12.md) sebagai batas fitur aktif.
 
 README ini adalah indeks utama. Semua dokumen Markdown lain berada di `docs/` dan diperiksa oleh `npm run docs:check`.
 
@@ -350,7 +354,7 @@ README ini adalah indeks utama. Semua dokumen Markdown lain berada di `docs/` da
 - [KOL.ID Instagram Downloader](docs/KOL-ID-INSTAGRAM-DOWNLOADER.md)
 - [Video HD](docs/VIDEO-HD.md)
 - [Dependency-aware Hot Reload](docs/HOT-RELOAD.md)
-- [Native Flow](docs/NATIVE-FLOW.md)
+- [Native Flow](docs/NATIVE-FLOW.md), [Baileys Interactive Research v0.10.29](docs/research/BAILEYS-INTERACTIVE-RESEARCH-v0.10.29.md), [Release Notes v0.10.29](docs/releases/RELEASE-NOTES-v0.10.29.md), [Upgrade v0.10.29](docs/upgrades/UPGRADE-v0.10.29.md), [QA v0.10.29](docs/qa/QA-REPORT-v0.10.29.md)
 - [Mode and Group Access](docs/MODE-AND-GROUP-ACCESS.md)
 
 ### Instagram dan pertumbuhan organik
@@ -387,6 +391,10 @@ README ini adalah indeks utama. Semua dokumen Markdown lain berada di `docs/` da
 - [Release Notes v0.10.24](docs/releases/RELEASE-NOTES-v0.10.24.md)
 - [Upgrade Guide v0.10.24](docs/upgrades/UPGRADE-v0.10.24.md)
 - [QA Report v0.10.24](docs/qa/QA-REPORT-v0.10.24.md)
+- [Release Notes v0.10.27](docs/releases/RELEASE-NOTES-v0.10.27.md)
+- [Upgrade Guide v0.10.27](docs/upgrades/UPGRADE-v0.10.27.md)
+- [QA Report v0.10.27](docs/qa/QA-REPORT-v0.10.27.md)
+- [Baileys Upstream Research v0.10.27](docs/research/BAILEYS-UPSTREAM-RESEARCH-v0.10.27.md)
 - [Release Notes v0.10.26](docs/releases/RELEASE-NOTES-v0.10.26.md)
 - [Upgrade Guide v0.10.26](docs/upgrades/UPGRADE-v0.10.26.md)
 - [QA Report v0.10.26](docs/qa/QA-REPORT-v0.10.26.md)
@@ -553,3 +561,7 @@ Setiap dokumen `docs/**/*.md` ditautkan langsung di bawah ini agar pemeriksaan d
 ## Runtime validation
 
 - Part 5 runtime validation: [RUNTIME-VALIDATION-PART5-2026-11-08.md](docs/qa/RUNTIME-VALIDATION-PART5-2026-11-08.md)
+
+## 9. WhatsApp delivery diagnostics
+
+`sendMessage` dan `relayMessage` dicatat oleh delivery tracker in-memory. Pemetaan LID status/broadcast juga mendukung cross-pair `participant` + `remoteJidAlt` saat bentuk envelope cocok. `sendMessage` dan `relayMessage` dicatat oleh delivery tracker in-memory. Event `messages.update` dan `message-receipt.update` dipakai untuk membedakan server acknowledgment, delivery acknowledgment, read, dan played. Periksa ringkasan melalui `.wadelivery` atau detail melalui `.wadelivery <messageId>`. `SERVER_ACK` bukan bukti pesan diterima atau dibaca oleh penerima. Hasil relay timeout dianggap ambigu dan tidak memicu resend otomatis. Cache dibatasi 2.000 record/24 jam dan hilang ketika proses restart. Detail: [Baileys Delivery Research](docs/research/BAILEYS-DELIVERY-RESEARCH-v0.10.30.md).

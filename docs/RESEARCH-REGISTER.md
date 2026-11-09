@@ -1,3 +1,5 @@
+> **STATUS: HISTORICAL RESEARCH.** Bagian yang membahas order/provider/queue merekam eksperimen versi lama dan tidak menggambarkan source aktif v0.10.31. Modul tersebut telah dipensiunkan; lihat [Project Structure](PROJECT-STRUCTURE.md).
+
 > **Arsip historis — bukan spesifikasi fitur aktif.** Dokumen ini memuat riset rancangan layanan promosi/order/provider yang dihentikan pada v0.10.12. WHISKAY v0.10.25 tidak memiliki saldo, wallet, order, SMM delivery, atau provider engagement. Gunakan hanya untuk memahami keputusan sejarah; jangan mengaktifkan konfigurasi atau mengembalikan command yang dijelaskan di sini.
 
 ---

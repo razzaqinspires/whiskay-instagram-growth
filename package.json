@@ -1,6 +1,6 @@
 {
   "name": "whiskay-instagram-growth",
-  "version": "0.10.26",
+  "version": "0.10.31",
   "private": true,
   "description": "WHISKAY private WhatsApp runtime with complete command discovery, structured message routing, TikTok multi-provider downloader, and opt-in AI scrape gateway.",
   "type": "module",
@@ -29,9 +29,10 @@
     "instagram:login": "node --env-file=.env scripts/instagram-login.mjs",
     "instagram:profile": "node scripts/instagram-profile.mjs",
     "package:release": "node scripts/package-release.mjs",
-    "postinstall": "node scripts/patch-baileys-view-once.mjs",
+    "postinstall": "node scripts/patch-baileys-view-once.mjs && node scripts/patch-baileys-media-stream.mjs",
     "baileys:patch-viewonce": "node scripts/patch-baileys-view-once.mjs",
-    "runtime:smoke": "node --env-file=.env scripts/runtime-smoke.mjs"
+    "runtime:smoke": "node --env-file=.env scripts/runtime-smoke.mjs",
+    "baileys:patch-media-stream": "node scripts/patch-baileys-media-stream.mjs"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "7.0.0-rc14",
