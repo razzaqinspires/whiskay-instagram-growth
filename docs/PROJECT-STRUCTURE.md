@@ -1,4 +1,4 @@
-# Peta Struktur Proyek WHISKAY v0.10.31
+# Peta Struktur Proyek WHISKAY v0.10.39
 
 Dokumen ini menjelaskan source aktif pada v0.10.31. Catatan versi lama dipertahankan sebagai sejarah, bukan petunjuk runtime saat ini.
 
@@ -9,6 +9,9 @@ Dokumen ini menjelaskan source aktif pada v0.10.31. Catatan versi lama dipertaha
 | `index.mjs`, `scripts/start.mjs` | Foreground supervisor, process lock, shutdown, startup bot | Satu bot; tidak menjalankan worker Growth order/queue |
 | `src/wa.mjs`, `src/commands.mjs` | Baileys lifecycle, ingress, owner authorization, anti-spam, parser, plugin dispatch | Semua command biasa melewati satu jalur akses |
 | `src/lib/` | Plugin loader, Native Flow, serializer, media router, delivery tracker, menu, LID/session utilities | Delivery cache in-memory, bounded, tidak menyimpan isi pesan |
+| `library/contributed/` | Source pemberian kontributor yang dipertahankan verbatim, dikelompokkan berdasarkan format/module scope; package boundary CJS lokal | Tidak dipindai PluginLoader dan tidak boleh diedit; seluruh konfigurasi/perilaku runtime harus melalui adapter terpisah |
+| `src/library/adapters/` | Mesin kontrol, normalisasi konfigurasi, renderer facade, fallback, dan command adapter untuk library kontribusi | Adapter boleh berubah; source kontributor tidak |
+| `library/assets/` | Asset runtime milik adapter (font, template, resource statis) | Tidak menyimpan kredensial atau session |
 | `src/plugins/` | WhatsApp core tools, Message Lab, TikTok, Instagram, Academi.cx, referral, YouTube Music, AI scrape | Tidak ada order/wallet/provider engagement commands |
 | `src/media/` | TikTok, YouTube Music, dan media normalization | Provider eksternal dibatasi allowlist, timeout, dan byte caps |
 | `src/ai/` | Adapter AI scrape HTTPS yang dikonfigurasi owner | Nonaktif secara default |

@@ -1,9 +1,9 @@
 import { normalizeUserJid } from './lib/lid-manager.mjs';
-import { renderCommandMenu, renderCommandCatalog, chunkCommandCatalog } from './lib/menu-renderer.mjs';
+import { renderCommandMenu, renderCommandCatalog } from './lib/menu-renderer.mjs';
 import { AntiSpamGuard } from './security/anti-spam.mjs';
 import { sanitizeError } from './security/redact.mjs';
 import { config, PROJECT_ROOT } from './config.mjs';
-import { parseOwnerCodeRequest, executeOwnerCodeRequest, formatOwnerCodeResult, isOwnerPrivateSelfChat } from './lib/owner-code-runtime.mjs';
+import { parseOwnerCodeRequest, executeOwnerCodeRequest, formatOwnerCodeResult, inspectOwnerPrivateSelfChat } from './lib/owner-code-runtime.mjs';
 import { extractCommandFromInteractiveResponse } from './lib/native-flow.mjs';
 import { createWhatsAppMessageRouter } from './lib/whatsapp-message-router.mjs';
 import { inspectIncomingMessage, downloadMediaPayload, describeMessageMedia, unwrapMessageContent } from './lib/baileys-serializer.mjs';
@@ -11,7 +11,14 @@ import { rememberPollCreationMessage } from './lib/poll-store.mjs';
 import { createRuntimeModeStore } from './lib/runtime-mode.mjs';
 import { commandActionId } from './lib/native-flow.mjs';
 import { commandUsageStore } from './lib/command-recommender.mjs';
+import { createUnknownCommandNoticeStore } from './lib/unknown-command-notice-store.mjs';
+import { createTrafficSafetyManager } from './security/traffic-safety-manager.mjs';
+import { createOwnerCodeAuditStore } from './lib/owner-code-audit.mjs';
 import { readFile } from 'node:fs/promises';
+
+export const unknownCommandNoticeStore = createUnknownCommandNoticeStore({ filePath: config.commands.unknownCommandNotificationsFile });
+export const trafficSafetyManager = createTrafficSafetyManager({ filePath: config.trafficSafety.stateFile, defaults: config.trafficSafety.defaults });
+export const ownerCodeAuditStore = createOwnerCodeAuditStore({ filePath: config.ownerCode.auditFile });
 
 export const runtimeModeStore = createRuntimeModeStore({
   filePath: config.commands.runtimeModeFile,
@@ -55,13 +62,13 @@ function getAntiSpamGuard() {
   if (!antiSpamGuard) {
     antiSpamGuard = new AntiSpamGuard({
       enabled: config.antiSpam.enabled,
-      windowMs: config.antiSpam.windowMs,
-      maxHits: config.antiSpam.maxHits,
-      cooldownMs: config.antiSpam.cooldownMs,
-      perMinute: config.antiSpam.commandsPerMinute,
+      windowMs: 300000,
+      maxHits: 300,
+      cooldownMs: 0,
+      perMinute: 300,
       duplicateTtlMs: config.antiSpam.duplicateTtlMs,
       warningCooldownMs: config.antiSpam.warningCooldownMs,
-      maxConcurrent: config.antiSpam.maxConcurrent
+      maxConcurrent: 100
     });
   }
   return antiSpamGuard;
@@ -230,7 +237,7 @@ export async function isAuthorizedSelfOrOwner(key, lidManager, options = {}) {
   return (await inspectOwnerAuthorization(key, lidManager, options)).authorized;
 }
 
-export async function handleMessage(sock, msg, { lidManager, pluginLoader, logger = console, ownerNumber = config.whatsapp.ownerNumber, allowGroups = config.commands.allowGroups, modeStore = runtimeModeStore, baileys } = {}) {
+export async function handleMessage(sock, msg, { lidManager, pluginLoader, logger = console, ownerNumber = config.whatsapp.ownerNumber, allowGroups = config.commands.allowGroups, modeStore = runtimeModeStore, unknownNoticeStore = unknownCommandNoticeStore, trafficSafety = trafficSafetyManager, antiSpam = getAntiSpamGuard(), ingressId, baileys } = {}) {
   if (!msg?.message) return false;
   const key = msg.key || {};
   if (!key.remoteJid || key.remoteJid === 'status@broadcast') return false;
@@ -243,16 +250,20 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
   if (modeStore === runtimeModeStore && runtimeMode.updatedAt === null) runtimeMode = { ...runtimeMode, allowGroups };
   const isGroup = String(key.remoteJid).endsWith('@g.us');
   const modeCommand = parsed?.command === 'mode';
+  const unknownNoticeCommandNames = new Set(['unknownnotice', 'unknowncmd', 'unknowncommandnotice']);
+  const unknownNoticeCommand = unknownNoticeCommandNames.has(parsed?.command);
+  const safetyCommand = parsed?.command === 'safety' || parsed?.command === 'trafficguard';
+  const ownerSettingsCommand = modeCommand || unknownNoticeCommand || safetyCommand;
   const logCommand = parsed?.command || ownerCodeRequest?.runtime || 'unknown';
   logger.info?.({ command: logCommand, fromMe: Boolean(key.fromMe), mode: runtimeMode.mode }, '[COMMAND] Incoming command');
 
   let authorization;
-  if (ownerCodeRequest || modeCommand || runtimeMode.mode === 'self') {
+  if (ownerCodeRequest || ownerSettingsCommand || runtimeMode.mode === 'self') {
     authorization = await inspectOwnerAuthorization(key, lidManager, {
       ownerNumber,
-      allowGroups: !ownerCodeRequest && runtimeMode.mode === 'self' && runtimeMode.allowGroups,
-      sessionPn: sock?.user?.id,
-      sessionLid: sock?.user?.lid
+      allowGroups: !ownerCodeRequest && !ownerSettingsCommand && runtimeMode.mode === 'self' && runtimeMode.allowGroups,
+      sessionPn: sock?.whiskayIdentity?.pn || sock?.user?.id,
+      sessionLid: sock?.whiskayIdentity?.lid || sock?.user?.lid
     });
   } else {
     // Public mode is deliberately restricted to direct chats and a tiny,
@@ -265,17 +276,21 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
   }
 
   if (authorization.authorized && ownerCodeRequest) {
-    const ownerSelfChat = await isOwnerPrivateSelfChat({
+    const ownerCodeGate = await inspectOwnerPrivateSelfChat({
       key,
       lidManager,
       ownerNumber,
-      sessionPn: sock?.user?.id,
-      sessionLid: sock?.user?.lid
+      sessionPn: sock?.whiskayIdentity?.pn || sock?.user?.id,
+      sessionLid: sock?.whiskayIdentity?.lid || sock?.user?.lid
     });
-    if (!ownerSelfChat) authorization = { authorized: false, reason: 'OWNER_CODE_REQUIRES_PRIVATE_SELF_CHAT' };
+    if (!ownerCodeGate.authorized) {
+      authorization = { ...authorization, authorized: false, reason: ownerCodeGate.reason, chatJidServers: ownerCodeGate.chatJidServers };
+      logger.warn?.({ runtime: ownerCodeRequest.runtime, reason: ownerCodeGate.reason, chatJidServers: ownerCodeGate.chatJidServers }, '[OWNER RUNTIME] Request rejected by private self-chat gate');
+    }
   }
 
   if (!authorization.authorized) {
+    if (ingressId) await trafficSafety.updateIngressDecision(ingressId, 'BLOCKED_AUTHORIZATION').catch(error => logger.warn?.('[TRAFFIC SAFETY] Could not update ingress decision:', error.message));
     logger.warn?.({
       command: logCommand,
       fromMe: Boolean(key.fromMe),
@@ -286,7 +301,10 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
     }, '[COMMAND] Ignored: authorization policy rejected message');
     return false;
   }
-  if (isGroup && (runtimeMode.mode !== 'self' || !runtimeMode.allowGroups)) return false;
+  if (isGroup && (runtimeMode.mode !== 'self' || !runtimeMode.allowGroups)) {
+    if (ingressId) await trafficSafety.updateIngressDecision(ingressId, 'BLOCKED_GROUP_POLICY');
+    return false;
+  }
 
   const reply = async text => sock.sendMessage(key.remoteJid, { text: String(text).slice(0, 4000) }, { quoted: msg });
   const messageInfo = inspectIncomingMessage(msg);
@@ -308,11 +326,38 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
     return downloadMediaPayload(descriptor, { maxBytes, sock, logger });
   };
   const sender = key.participant || key.remoteJid;
+  const senderIdentity = await resolvePhoneJid(sender, lidManager, sock?.user?.id, sock?.user?.lid) || sender;
+  if (!ownerSettingsCommand && !ownerCodeRequest) {
+    const safetyDecision = await trafficSafety.inspectIncoming({
+      sender: senderIdentity, command: parsed?.command || 'unknown', messageId: key.id, ingressId
+    });
+    if (safetyDecision.status === 'COOLDOWN') {
+      if (safetyDecision.notify) {
+        await reply(`Perintah sedang cooldown. Coba lagi dalam ${Math.max(1, Math.ceil(safetyDecision.retryAfterMs / 1000))} detik. Notifikasi cooldown hanya dikirim sekali selama periode ini.`);
+      }
+      return true;
+    }
+    if (safetyDecision.status === 'SPAM_HOLD') return true;
+    if (safetyDecision.status === 'SPAM_WARNING') {
+      if (safetyDecision.notify) {
+        await reply(`Peringatan anti-spam ${safetyDecision.warningCount}/${safetyDecision.warningThreshold}. Aktivitas command terlalu cepat; hentikan pengiriman beruntun. Pelanggaran berulang dapat menyebabkan temporary ban.`);
+      }
+      return true;
+    }
+    if (safetyDecision.status === 'BANNED') {
+      if (safetyDecision.notify) {
+        const remaining = Math.max(1, Math.ceil((safetyDecision.bannedUntil - Date.now()) / 60000));
+        await reply(`Akses command sementara dibatasi karena aktivitas spam. Perkiraan sisa ban: ${remaining} menit.`);
+      }
+      return true;
+    }
+  }
   const antiSpamCommandKey = ownerCodeRequest
     ? `owner-code:${ownerCodeRequest.runtime}`
     : parsed.command === 'mode' ? `mode:${parsed.args.join(':') || 'status'}` : parsed.command;
-  const gate = getAntiSpamGuard().check({ sender, command: antiSpamCommandKey, messageId: key.id });
+  const gate = antiSpam.check({ sender, command: antiSpamCommandKey, messageId: key.id });
   if (!gate.allowed) {
+    if (ingressId) await trafficSafety.updateIngressDecision(ingressId, `BLOCKED_${gate.reason || 'RUNTIME_GUARD'}`);
     if (gate.warn) {
       const notice = gate.reason === 'DUPLICATE_MESSAGE'
         ? 'Pesan duplikat diabaikan.'
@@ -322,13 +367,14 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
     return false;
   }
   const context = {
-    sock, msg, key, lidManager, pluginLoader, command: parsed?.command || ownerCodeRequest?.runtime, prefix: parsed?.prefix || ownerCodeRequest?.prefix, args: parsed?.args || [], rawArgs: parsed?.rawArgs || ownerCodeRequest?.source,
-    reply, send, sendInteractive, sendNativeButtons, sendCarousel, sendRichCard, sendAIRich, sendTemplateButtons: sendTemplate, sendLegacyButtonMessage: messageRouter.sendLegacyButtonMessage,
+    sock, msg, key, lidManager, pluginLoader, ownerNumber, command: parsed?.command || ownerCodeRequest?.runtime, prefix: parsed?.prefix || ownerCodeRequest?.prefix, args: parsed?.args || [], rawArgs: parsed?.rawArgs || ownerCodeRequest?.source,
+    reply, unknownNoticeStore, trafficSafety, send, sendInteractive, sendNativeButtons, sendCarousel, sendRichCard, sendAIRich, sendTemplateButtons: sendTemplate, sendLegacyButtonMessage: messageRouter.sendLegacyButtonMessage,
     sendPoll, sendMedia, sendContact, sendLocation, sendProduct, sendEvent, downloadMedia, messageInfo, isPollUpdate: messageInfo.isPollUpdate,
     pollUpdate: messageInfo.pollUpdate, pollCreationMessageKey: messageInfo.pollCreationMessageKey, logger, runtimeMode
   };
   try {
     if (ownerCodeRequest) {
+      if (ingressId) await trafficSafety.updateIngressDecision(ingressId, 'OWNER_CODE_EXECUTION');
       if (!config.ownerCode.enabled) {
         await reply('Owner runtime sedang dinonaktifkan melalui config/app.json ownerCode.enabled.');
         return true;
@@ -338,6 +384,15 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
         projectRoot: PROJECT_ROOT,
         context: { ...context, config }
       });
+      await ownerCodeAuditStore.record({
+        runtime: ownerCodeRequest.runtime,
+        source: ownerCodeRequest.source,
+        messageId: key.id,
+        ok: result.ok,
+        durationMs: result.durationMs,
+        exitCode: result.exitCode,
+        errorCode: result.ok ? null : (result.timedOut ? 'TIMEOUT' : 'EXECUTION_FAILED')
+      }).catch(error => logger.error?.({ error: error.message }, '[OWNER RUNTIME AUDIT] Failed to persist execution record'));
       await reply(formatOwnerCodeResult(ownerCodeRequest, result));
       logger.info?.({ runtime: ownerCodeRequest.runtime, ok: result.ok, durationMs: result.durationMs }, '[OWNER RUNTIME] Execution completed');
       return true;
@@ -413,17 +468,17 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
         } catch {}
       }
       const menuIntro = `Halo ${pushName}. Ada ${commands.length} command aktif pada registry ini. Menu menampilkan 10 rekomendasi berdasarkan hit aktual, tren 7 hari, kebaruan, pemerataan kategori, dan rotasi command yang jarang digunakan.`;
-      // Native Flow body stays deliberately short. When the full directory fits,
-      // show it in the same menu body; otherwise send the complete catalogue as
-      // bounded ordinary-text messages after the interactive menu.
-      const inlineBody = `${menuIntro}\n\n${catalog}`;
-      const includeCatalogInline = inlineBody.length <= 900;
-      await sendInteractive({
+      // Keep the complete command directory in the Native Flow body so .menu
+      // produces exactly one WhatsApp message. The body limit is enforced by
+      // sendNativeFlow; do not emit follow-up catalogue messages.
+      const menuBody = `${menuIntro}\n\n${catalog}`;
+      // Exactly one outbound operation: all catalogue text belongs to the
+      // Native Flow message body (the text/caption shown above its buttons).
+      // Never call reply(), chunkCommandCatalog(), or sendMessage() here.
+      const menuResult = await sendInteractive({
         title: 'WHISKAY · MENU UTAMA',
         subtitle: 'Mixed Native Flow · 3 jenis tindakan',
-        body: includeCatalogInline
-          ? inlineBody
-          : `${menuIntro}\n\nDaftar lengkap command, alias, penggunaan, dan deskripsi dikirim setelah menu agar body Native Flow tetap ringkas.`,
+        body: menuBody,
         footer: 'WHISKAY · Command Discovery Engine · Katalog lengkap',
         contextInfo: { externalAdReply },
         buttons: [
@@ -432,13 +487,9 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
           { type: 'single_select', title: '10 Rekomendasi', listTitle: 'Command rekomendasi', sections: [{ title: 'Personalized command picks', rows }] }
         ]
       });
-      if (!includeCatalogInline) {
-        const chunks = chunkCommandCatalog(catalog, 3500);
-        for (let index = 0; index < chunks.length; index += 1) {
-          const heading = `KATALOG COMMAND · ${index + 1}/${chunks.length}\n`;
-          await reply(`${heading}${chunks[index]}`);
-        }
-      }
+      logger.info?.(
+        `[MENU] v0.10.34 single-message dispatch: commands=${commands.length}, bodyChars=${menuBody.length}, transport=${menuResult?.interactiveFallback ? 'text-fallback' : 'native-flow'}`
+      );
       return true;
     }
 
@@ -463,8 +514,16 @@ export async function handleMessage(sock, msg, { lidManager, pluginLoader, logge
       return true;
     }
     const result = await pluginLoader?.execute(parsed.command, context);
-    if (!result?.found) await reply(`Command tidak dikenal: ${parsed.prefix}${parsed.command}\nKetik ${parsed.prefix}help untuk daftar command.`);
-    else {
+    if (ingressId) await trafficSafety.updateIngressDecision(ingressId, result?.found ? 'COMMAND_HANDLED' : 'COMMAND_UNKNOWN');
+    if (!result?.found) {
+      const noticeState = await unknownNoticeStore.get();
+      if (noticeState.enabled) {
+        await reply(`Command tidak dikenal: ${parsed.prefix}${parsed.command}\\nKetik ${parsed.prefix}help untuk daftar command.`);
+        logger.info?.({ command: parsed.command }, '[COMMAND] Unknown command notice sent');
+      } else {
+        logger.debug?.({ command: parsed.command }, '[COMMAND] Unknown command ignored silently');
+      }
+    } else {
       const canonical = (pluginLoader?.listCommands?.() || []).find(item => item.name === parsed.command || item.aliases?.includes(parsed.command))?.name || parsed.command;
       await commandUsageStore.recordHit(canonical).catch(error => logger.warn?.('[COMMAND] hit counter write failed:', error.message));
     }

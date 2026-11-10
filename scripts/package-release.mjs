@@ -27,7 +27,7 @@ const stage = path.join(stageRoot, archiveRootName);
 const include = [
   '.gitignore', '.npmrc', '.env.example', 'README.md',
   'index.mjs', 'package.json', 'requirements-instagram.txt',
-  'config/app.example.json', 'assets', 'docs', 'python', 'scripts', 'src', 'test', 'vendor',
+  'config/app.example.json', 'assets', 'docs', 'library', 'python', 'scripts', 'src', 'test', 'vendor',
 ];
 const deniedNames = new Set([
   '.git', '.npm', 'node_modules', '.venv-instagram', '__pycache__',

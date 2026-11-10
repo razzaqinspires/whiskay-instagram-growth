@@ -17,6 +17,7 @@ const SHARED_RUNTIME_MODULES = [
   'instagram.mjs',
   'lib/lid-manager.mjs',
   'lib/poll-store.mjs',
+  'lib/spr-message-store.mjs',
   'growth/store.mjs',
   'referral/bot.mjs',
   'referral/queue-processor.mjs',

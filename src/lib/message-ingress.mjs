@@ -40,6 +40,7 @@ export function classifyMessageUpsert(event = {}, { isCommand = () => true } = {
     fromMeCount,
     alternateAddressCount,
     commandLikeCount: commandMessages.length,
-    messages: live ? commandMessages : []
+    messages: live ? commandMessages : [],
+    liveMessages: live ? messages.filter(message => message?.message && message?.key?.remoteJid) : []
   };
 }

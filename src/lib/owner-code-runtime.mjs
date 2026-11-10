@@ -32,29 +32,59 @@ async function resolveOwnerChatPhone(value, lidManager, sessionPn, sessionLid) {
   return mapped || null;
 }
 
-/** Strict execution gate: code tools only run from the authenticated owner's own private self-chat. */
-export async function isOwnerPrivateSelfChat({ key, lidManager, ownerNumber, sessionPn: sessionPnRaw, sessionLid: sessionLidRaw } = {}) {
-  if (key?.fromMe !== true || !key?.remoteJid || String(key.remoteJid).endsWith('@g.us')) return false;
+/** Explain why the high-privilege runtime gate accepted or rejected a message. */
+export async function inspectOwnerPrivateSelfChat({ key, lidManager, ownerNumber, sessionPn: sessionPnRaw, sessionLid: sessionLidRaw } = {}) {
+  if (key?.fromMe !== true) return { authorized: false, reason: 'FROM_ME_REQUIRED' };
+  if (!key?.remoteJid) return { authorized: false, reason: 'CHAT_JID_MISSING' };
+  if (String(key.remoteJid).endsWith('@g.us')) return { authorized: false, reason: 'GROUP_CHAT_FORBIDDEN' };
   const ownerPn = toPhoneJid(`${String(ownerNumber || '').replace(/\D/g, '')}@s.whatsapp.net`);
+  if (!ownerPn) return { authorized: false, reason: 'OWNER_NUMBER_MISSING' };
   const sessionPn = toPhoneJid(sessionPnRaw);
+  if (!sessionPn) return { authorized: false, reason: 'SESSION_PN_UNAVAILABLE' };
+  if (sessionPn !== ownerPn) return { authorized: false, reason: 'SESSION_OWNER_MISMATCH' };
   const sessionLidValue = normalizeUserJid(sessionLidRaw);
   const sessionLid = sessionLidValue?.endsWith('@lid') ? sessionLidValue : null;
-  if (!ownerPn || sessionPn !== ownerPn) return false;
-  const chatValues = [key.remoteJid, key.remoteJidAlt, key.remoteJidPn];
-  const resolved = await Promise.all(chatValues.map(value => resolveOwnerChatPhone(value, lidManager, sessionPn, sessionLid)));
-  return resolved.includes(ownerPn);
+  // remoteJid is the destination chat. remoteJidAlt can describe the sender's alternate identity on outgoing messages, so it must never prove that the destination is the owner's self-chat.
+  const chatValues = [key.remoteJid, key.remoteJidPn];
+  const resolved = await Promise.all(chatValues.map(async value => {
+    try {
+      return await resolveOwnerChatPhone(value, lidManager, sessionPn, sessionLid);
+    } catch {
+      return null;
+    }
+  }));
+  if (resolved.includes(ownerPn)) return { authorized: true, reason: 'OWNER_PRIVATE_SELF_CHAT' };
+  return {
+    authorized: false,
+    reason: 'CHAT_NOT_OWNER_SELF_CHAT',
+    chatJidServers: [...new Set(chatValues.map(value => {
+      const jid = normalizeUserJid(value);
+      return jid?.slice(jid.lastIndexOf('@') + 1) || 'missing';
+    }))]
+  };
+}
+
+/** Strict execution gate: code tools only run from the authenticated owner's own private self-chat. */
+export async function isOwnerPrivateSelfChat(options = {}) {
+  return (await inspectOwnerPrivateSelfChat(options)).authorized;
 }
 
 export function parseOwnerCodeRequest(text) {
   if (typeof text !== 'string') return null;
-  const input = text.trimStart();
+  let input = text.replace(/^\uFEFF/, '').trimStart();
+  // Some WhatsApp copy/export paths append a terminal backslash as a line-continuation marker.
+  // Strip exactly one terminal marker; do not alter backslashes inside source code.
+  if (input.endsWith('\\')) input = input.slice(0, -1).trimEnd();
   const match = RUNTIME_PREFIXES.find(item => input.startsWith(item.prefix));
   if (!match) return null;
+  let source = input.slice(match.prefix.length).trim();
+  const fenced = source.match(/^```(?:javascript|js|python|py|bash|sh|shell|go)?\s*\n([\s\S]*?)\n```$/i);
+  if (fenced) source = fenced[1].trim();
   return {
     runtime: match.runtime,
     label: match.label,
     prefix: match.prefix,
-    source: input.slice(match.prefix.length).trim()
+    source
   };
 }
 
@@ -75,7 +105,41 @@ function boundedText(value, maxChars) {
   return `${text.slice(0, maxChars)}\n… output dipotong pada batas ${maxChars} karakter.`;
 }
 
-function createVmContext(context = {}, runtimeConsole = console) {
+function createTrackedTimers() {
+  const handles = new Set();
+  const track = (kind, callback, delay, ...args) => {
+    let handle;
+    const wrapped = (...callbackArgs) => {
+      if (kind !== 'interval') handles.delete(handle);
+      return callback(...callbackArgs);
+    };
+    handle = kind === 'interval'
+      ? setInterval(wrapped, delay, ...args)
+      : kind === 'immediate'
+        ? setImmediate(wrapped, ...args)
+        : setTimeout(wrapped, delay, ...args);
+    handles.add(handle);
+    return handle;
+  };
+  return {
+    setTimeout: (callback, delay, ...args) => track('timeout', callback, delay, ...args),
+    setInterval: (callback, delay, ...args) => track('interval', callback, delay, ...args),
+    setImmediate: (callback, ...args) => track('immediate', callback, undefined, ...args),
+    clearTimeout: handle => { clearTimeout(handle); handles.delete(handle); },
+    clearInterval: handle => { clearInterval(handle); handles.delete(handle); },
+    clearImmediate: handle => { clearImmediate(handle); handles.delete(handle); },
+    clearAll: () => {
+      for (const handle of handles) {
+        clearTimeout(handle);
+        clearInterval(handle);
+        clearImmediate(handle);
+      }
+      handles.clear();
+    }
+  };
+}
+
+function createVmContext(context = {}, runtimeConsole = console, timers = createTrackedTimers()) {
   const sandbox = {
     sock: context.sock,
     conn: context.sock,
@@ -102,12 +166,12 @@ function createVmContext(context = {}, runtimeConsole = console) {
     fetch: globalThis.fetch,
     URL,
     URLSearchParams,
-    setTimeout,
-    clearTimeout,
-    setInterval,
-    clearInterval,
-    setImmediate,
-    clearImmediate
+    setTimeout: timers.setTimeout,
+    clearTimeout: timers.clearTimeout,
+    setInterval: timers.setInterval,
+    clearInterval: timers.clearInterval,
+    setImmediate: timers.setImmediate,
+    clearImmediate: timers.clearImmediate
   };
   return vm.createContext(sandbox, {
     name: 'WHISKAY owner eval runtime',
@@ -120,7 +184,8 @@ async function runJavaScript(request, { timeoutMs, maxOutputBytes, context }) {
   const runtimeConsole = Object.fromEntries(['log', 'info', 'warn', 'error', 'debug'].map(level => [level, (...values) => {
     consoleLines.push(`[${level}] ${values.map(normalizeOutput).join(' ')}`);
   }]));
-  const vmContext = createVmContext(context, runtimeConsole);
+  const timers = createTrackedTimers();
+  const vmContext = createVmContext(context, runtimeConsole, timers);
   const scriptText = request.runtime === 'eval-async'
     ? `(async () => {\n${request.source}\n})()`
     : request.source.trimStart().startsWith('return')
@@ -138,10 +203,20 @@ async function runJavaScript(request, { timeoutMs, maxOutputBytes, context }) {
     value = script.runInContext(vmContext, { timeout: timeoutMs, displayErrors: true });
     if (value && typeof value.then === 'function') {
       value = await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`Execution timeout setelah ${timeoutMs} ms.`)), timeoutMs);
+        const timer = setTimeout(() => reject(new Error(
+          `Batas tunggu ${timeoutMs} ms tercapai. Promise JavaScript tidak otomatis dibatalkan; operasi eksternal yang sudah dimulai dapat tetap berjalan.`
+        )), timeoutMs);
         Promise.resolve(value).then(resolve, reject).finally(() => clearTimeout(timer));
       });
     }
+    const outputParts = [...consoleLines];
+    if (value !== undefined) outputParts.push(normalizeOutput(value));
+    return {
+      ok: true,
+      runtime: request.runtime,
+      durationMs: Date.now() - startedAt,
+      output: boundedText(outputParts.join('\n') || '(tidak ada output)', Math.min(maxOutputBytes, 12000))
+    };
   } catch (error) {
     return {
       ok: false,
@@ -149,17 +224,9 @@ async function runJavaScript(request, { timeoutMs, maxOutputBytes, context }) {
       durationMs: Date.now() - startedAt,
       output: boundedText(error?.stack || error?.message || String(error), Math.min(maxOutputBytes, 12000))
     };
+  } finally {
+    timers.clearAll();
   }
-
-  const outputParts = [...consoleLines];
-  if (value !== undefined) outputParts.push(normalizeOutput(value));
-  const output = outputParts.join('\n') || '(tidak ada output)';
-  return {
-    ok: true,
-    runtime: request.runtime,
-    durationMs: Date.now() - startedAt,
-    output: boundedText(output, Math.min(maxOutputBytes, 12000))
-  };
 }
 
 function killProcessTree(child, signal = 'SIGTERM') {
@@ -297,7 +364,21 @@ async function executeOwnerCodeRequestInternal(request, {
     throw new TypeError('Jenis runtime owner-code tidak dikenal.');
   }
   const source = String(request.source ?? '').trim();
-  if (!source) return { ok: false, runtime: request.runtime, durationMs: 0, output: 'Kode kosong.' };
+  if (!source) {
+    const usage = {
+      'eval-async': '> return "hasil"\n> const response = await fetch(url); return await response.text()',
+      'eval-return': '=> "helo"\n=> 1 + 2\n=> return sock.user',
+      shell: '$ ls\n$ pwd\n$ node --version',
+      python: '>> print("python-ok")\n>> import os; print(os.getcwd())',
+      golang: '>>> package main\nimport "fmt"\nfunc main() { fmt.Println("go-ok") }'
+    };
+    return {
+      ok: false,
+      runtime: request.label || request.runtime,
+      durationMs: 0,
+      output: `Kode ${request.label || request.runtime} kosong. Contoh penggunaan:\n${usage[request.runtime] || 'Masukkan kode setelah prefix.'}`
+    };
+  }
 
   const maxCodeChars = config.maxCodeChars ?? 8000;
   const timeoutMs = config.timeoutMs ?? 15000;

@@ -35,12 +35,13 @@ try {
   const byName = new Map(commands.map(command => [command.name, command]));
   report('plugin registry non-empty', commands.length > 0, `${status.plugins} plugins, ${commands.length} commands`);
 
-  const required = ['waform', 'tiktok', 'aiscrape'];
+  const required = ['waform', 'tiktok', 'aiscrape', 'katabg'];
   for (const name of required) report(`command .${name}`, byName.has(name), byName.has(name) ? byName.get(name).plugin : 'not registered');
 
   const aliasChecks = [
     ['waform', ['waui', 'wabuttons']],
     ['aiscrape', ['irfanscrape', 'scrapeai']],
+    ['katabg', ['katabangwaindah', 'windahcanvas']],
   ];
   for (const [name, aliases] of aliasChecks) {
     const command = byName.get(name);

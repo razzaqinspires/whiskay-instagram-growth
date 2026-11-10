@@ -17,7 +17,8 @@
     ],
     "allowGroups": true,
     "maxMessageChars": 3000,
-    "maxCommandArgs": 24
+    "maxCommandArgs": 24,
+    "unknownCommandNotificationsFile": "./data/unknown-command-notifications.json"
   },
   "plugins": {
     "directory": "./src/plugins",
@@ -92,7 +93,8 @@
     "workDir": "./data/owner-runtime",
     "pythonBin": "python3",
     "goBin": "go",
-    "shellBin": "/bin/bash"
+    "shellBin": "/bin/bash",
+    "auditFile": "./data/owner-code-audit.json"
   },
   "identity": {
     "lidMapFile": "./data/lid-map.json"
@@ -125,5 +127,24 @@
     "maxFileBytes": 52428800,
     "maxTextChars": 2500,
     "inboxDir": "./data/academic-inputs"
+  },
+  "trafficSafety": {
+    "stateFile": "./data/whatsapp-traffic-safety.json",
+    "queueFile": "./data/whatsapp-outbound-queue.json",
+    "cooldownEnabled": true,
+    "perCommandMs": 1800,
+    "notifyCooldownOnce": true,
+    "antiSpamEnabled": true,
+    "burstWindowMs": 10000,
+    "burstLimit": 5,
+    "warningThreshold": 3,
+    "banThreshold": 5,
+    "warningWindowMs": 3600000,
+    "banDurationMs": 900000,
+    "transportEnabled": true,
+    "minIntervalMs": 1200,
+    "maxQueueSize": 1000,
+    "queueEnabled": true,
+    "auditRetention": 5000
   }
 }

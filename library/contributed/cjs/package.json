@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "commonjs",
+  "description": "Isolated package boundary for third-party CommonJS contributions. Preserve upstream source verbatim."
+}

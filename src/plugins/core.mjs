@@ -5,6 +5,131 @@ export default {
   name: 'core',
   commands: [
     {
+      name: 'safety', aliases: ['trafficguard'], category: 'Core & Diagnostics',
+      usage: '[status|cooldown|spam|transport|queue|rate|bans|ban|unban]',
+      description: 'Kontrol owner-only untuk cooldown, anti-spam, temporary ban, antrean dan transport',
+      async execute({ args = [], reply, trafficSafety, sock }) {
+        const [sectionRaw = 'status', actionRaw, valueRaw, extraRaw] = args;
+        const section = String(sectionRaw).toLowerCase();
+        const action = String(actionRaw || '').toLowerCase();
+        const value = String(valueRaw || '').toLowerCase();
+        const toggle = value => {
+          if (!['on', 'off'].includes(value)) throw new Error('Gunakan on atau off.');
+          return value === 'on';
+        };
+        const settings = await trafficSafety.getSettings();
+        if (section === 'status' || section === 'settings') {
+          const stats = await trafficSafety.stats();
+          const queue = await sock?.whiskayOutboundQueue?.stats?.().catch?.(() => null);
+          const s = stats.settings;
+          return reply([
+            '━━ WHISKAY TRAFFIC SAFETY ━━',
+            `Cooldown: ${s.cooldown.enabled ? 'ON' : 'OFF'} · ${s.cooldown.perCommandMs} ms · notifikasi sekali: ${s.cooldown.notifyOnce ? 'YA' : 'TIDAK'}`,
+            `Anti-spam: ${s.antiSpam.enabled ? 'ON' : 'OFF'} · burst ${s.antiSpam.burstLimit}/${s.antiSpam.windowMs} ms · warning ${s.antiSpam.warningThreshold} · ban ${s.antiSpam.banThreshold}`,
+            `Transport pacing: ${s.transport.enabled ? 'ON' : 'OFF'} · jeda minimum ${s.transport.minIntervalMs} ms`,
+            `Outbound queue: ${s.queue.enabled ? 'ON' : 'OFF'} · maksimum ${s.transport.maxQueueSize}`,
+            `Temporary bans aktif: ${stats.activeBans}`,
+            `Rekaman ingress tersimpan: ${stats.ingressRecorded}`,
+            queue ? `Antrean outbound: ${queue.pending} pending · ${queue.sent} sent · ${queue.failed} failed · ${queue.unknown} unknown` : 'Antrean outbound: belum terpasang',
+            '',
+            'Perintah: .safety cooldown|spam|transport|queue on|off',
+            '.safety rate <ms> · .safety spam limits <burst> <warning> <ban> <detik>',
+            '.safety ban-duration <menit> · .safety bans',
+            '.safety ban <nomor> [menit] · .safety unban <nomor>'
+          ].join('\\n'));
+        }
+        if (['cooldown', 'spam', 'transport', 'queue'].includes(section)) {
+          if (!['on', 'off'].includes(action)) return reply(`Format: .safety ${section} on|off`);
+          const key = section === 'spam' ? 'antiSpam' : section;
+          const updated = await trafficSafety.updateSettings(key, { enabled: toggle(action) });
+          return reply(`${section} ${updated.enabled ? 'AKTIF' : 'NONAKTIF'}. Pengaturan tersimpan ke JSON.`);
+        }
+        if (section === 'rate') {
+          const ms = Number(actionRaw);
+          const updated = await trafficSafety.updateSettings('transport', { minIntervalMs: ms });
+          return reply(`Jeda minimum pengiriman diatur ke ${updated.minIntervalMs} ms dan disimpan.`);
+        }
+        if (section === 'spam' && action === 'limits') {
+          const [burstLimit, warningThreshold, banThreshold, windowSeconds] = args.slice(2).map(Number);
+          const updated = await trafficSafety.updateSettings('antiSpam', {
+            burstLimit, warningThreshold, banThreshold, windowMs: windowSeconds * 1000
+          });
+          return reply(`Batas anti-spam tersimpan: burst ${updated.burstLimit} pesan/${updated.windowMs / 1000} detik, warning ${updated.warningThreshold}, ban ${updated.banThreshold}.`);
+        }
+        if (section === 'ban-duration') {
+          const minutes = Number(actionRaw);
+          const updated = await trafficSafety.updateSettings('antiSpam', { banDurationMs: minutes * 60000 });
+          return reply(`Durasi temporary ban otomatis: ${updated.banDurationMs / 60000} menit.`);
+        }
+        if (section === 'cooldown-ms') {
+          const ms = Number(actionRaw);
+          const updated = await trafficSafety.updateSettings('cooldown', { perCommandMs: ms });
+          return reply(`Cooldown per command diatur ke ${updated.perCommandMs} ms.`);
+        }
+        if (section === 'bans') {
+          const bans = await trafficSafety.listBans();
+          return reply(bans.length
+            ? ['━━ ACTIVE TEMPORARY BANS ━━', ...bans.map(item => `${item.sender} · sampai ${new Date(item.bannedUntil).toISOString()} · ${item.reason}`)].join('\\n')
+            : 'Tidak ada temporary ban aktif.');
+        }
+        if (section === 'ban' || section === 'unban') {
+          const targetRaw = String(actionRaw || '');
+          const digits = targetRaw.replace(/\D/g, '');
+          if (!/^\d{8,15}$/.test(digits)) return reply(`Format: .safety ${section} <nomor-internasional> [menit]`);
+          const jid = `${digits}@s.whatsapp.net`;
+          if (section === 'unban') {
+            await trafficSafety.unbanUser(jid);
+            return reply(`Temporary ban untuk ${jid} telah dicabut.`);
+          }
+          const minutes = Number(valueRaw || 15);
+          if (!Number.isFinite(minutes) || minutes < 1 || minutes > 10080) return reply('Durasi ban harus 1–10080 menit.');
+          const result = await trafficSafety.banUser(jid, Math.floor(minutes * 60000), 'owner_manual');
+          return reply(`Temporary ban diterapkan ke ${result.sender} sampai ${new Date(result.bannedUntil).toISOString()}.`);
+        }
+        return reply([
+          'Format WHISKAY SAFETY:',
+          '.safety status',
+          '.safety cooldown on|off',
+          '.safety cooldown-ms <0-60000>',
+          '.safety spam on|off',
+          '.safety transport on|off',
+          '.safety queue on|off',
+          '.safety rate <500-60000>',
+          '.safety spam limits <burst> <warning> <ban> <detik>',
+          '.safety ban-duration <menit>',
+          '.safety bans',
+          '.safety ban <nomor> [menit]',
+          '.safety unban <nomor>'
+        ].join('\\n'));
+      }
+    },
+    {
+      name: 'unknownnotice', aliases: ['unknowncmd', 'unknowncommandnotice'], category: 'Core & Diagnostics',
+      usage: '[status|on|off]', description: 'Aktifkan atau nonaktifkan notifikasi command tidak dikenal (owner-only)',
+      async execute({ args = [], reply, unknownNoticeStore }) {
+        const action = String(args[0] || 'status').toLowerCase();
+        if (action === 'status') {
+          const state = await unknownNoticeStore.get();
+          return reply([
+            '━━ UNKNOWN COMMAND NOTIFICATION ━━',
+            `Status: ${state.enabled ? 'ON' : 'OFF'}`,
+            'OFF: command tidak dikenal diabaikan tanpa balasan.',
+            'ON: bot membalas dengan informasi command tidak dikenal.',
+            '',
+            'Perintah:',
+            '.unknownnotice on',
+            '.unknownnotice off',
+            '.unknownnotice status'
+          ].join('\\n'));
+        }
+        if (!['on', 'off'].includes(action) || args.length > 1) {
+          return reply('Format: .unknownnotice [status|on|off]');
+        }
+        const state = await unknownNoticeStore.setEnabled(action === 'on');
+        return reply(`Notifikasi command tidak dikenal: ${state.enabled ? 'AKTIF' : 'NONAKTIF'}.`);
+      }
+    },
+    {
       name: 'ping', aliases: ['p'], category: 'Core & Diagnostics', usage: '', description: 'Tes respons bot',
       async execute({ reply }) { await reply('pong'); }
     },

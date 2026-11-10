@@ -1,4 +1,4 @@
-# Referensi Scripts WHISKAY v0.10.31
+# Referensi Scripts WHISKAY v0.10.32
 
 `npm start` adalah entrypoint utama. Source v0.10.31 tidak lagi menyertakan worker atau queue-health Growth yang telah dipensiunkan.
 
@@ -23,6 +23,13 @@
 | `scripts/package-release.mjs` | Membuat source ZIP bersih di luar root proyek | `npm run package:release` |
 | `scripts/patch-baileys-view-once.mjs` | Patch Baileys rc14 agar mediatype membaca isi View Once yang telah dinormalisasi | Otomatis melalui `npm install`; manual `npm run baileys:patch-viewonce` |
 | `scripts/patch-baileys-media-stream.mjs` | Patch Baileys rc14 agar error stream HTTP media diteruskan ke consumer dan tidak menjadi uncaught exception | Otomatis melalui `npm install`; manual `npm run baileys:patch-media-stream` |
+
+## Legacy scripts retained in the archive
+
+| File | Status | Catatan |
+|---|---|---|
+| `scripts/worker.mjs` | Legacy / not an active package.json entrypoint | Not part of current foreground bot launcher; preserve only pending a separate repository-history review. |
+| `scripts/queue-health.mjs` | Legacy / not an active package.json entrypoint | Not part of current package scripts; do not run as part of v0.10.39. |
 
 ## Perintah npm aktif
 

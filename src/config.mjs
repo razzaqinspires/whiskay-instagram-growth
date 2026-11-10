@@ -89,6 +89,7 @@ export function validateConfig(raw = {}, secrets = process.env, { requireWhatsAp
   const referralRaw = object(root.referral ?? {}, 'referral', errors);
   const academixRaw = object(root.academix ?? {}, 'academix', errors);
   const ownerCodeRaw = object(root.ownerCode ?? {}, 'ownerCode', errors);
+  const trafficSafetyRaw = object(root.trafficSafety ?? {}, 'trafficSafety', errors);
 
   const pairingNumber = requireWhatsApp || wa.pairingNumber
     ? phone(wa.pairingNumber, 'whatsapp.pairingNumber', errors) : '';
@@ -103,6 +104,7 @@ export function validateConfig(raw = {}, secrets = process.env, { requireWhatsAp
   const commandMode = String(commands.mode ?? 'self').toLowerCase();
   if (!['self', 'public'].includes(commandMode)) errors.push('commands.mode harus self atau public.');
   const runtimeModeFile = absPath(commands.runtimeModeFile, 'commands.runtimeModeFile', './data/runtime-mode.json', errors, { privateState: true });
+  const unknownCommandNotificationsFile = absPath(commands.unknownCommandNotificationsFile, 'commands.unknownCommandNotificationsFile', './data/unknown-command-notifications.json', errors, { privateState: true });
   const hotReload = bool(plugins.hotReload, 'plugins.hotReload', true, errors);
   const logLevel = String(app.logLevel ?? 'info').toLowerCase();
   if (!LOG_LEVELS.has(logLevel)) errors.push(`app.logLevel tidak valid: ${logLevel}.`);
@@ -248,6 +250,37 @@ export function validateConfig(raw = {}, secrets = process.env, { requireWhatsAp
     maxConcurrent: int(anti.maxConcurrent, 'antiSpam.maxConcurrent', 2, 1, 20, errors)
   };
 
+  const trafficSafetyStateFile = absPath(trafficSafetyRaw.stateFile, 'trafficSafety.stateFile', './data/whatsapp-traffic-safety.json', errors, { privateState: true });
+  const outboundQueueFile = absPath(trafficSafetyRaw.queueFile, 'trafficSafety.queueFile', './data/whatsapp-outbound-queue.json', errors, { privateState: true });
+  const trafficSafetyDefaults = {
+    cooldown: {
+      enabled: bool(trafficSafetyRaw.cooldownEnabled, 'trafficSafety.cooldownEnabled', true, errors),
+      perCommandMs: int(trafficSafetyRaw.perCommandMs, 'trafficSafety.perCommandMs', 1800, 0, 60000, errors),
+      notifyOnce: bool(trafficSafetyRaw.notifyCooldownOnce, 'trafficSafety.notifyCooldownOnce', true, errors)
+    },
+    antiSpam: {
+      enabled: bool(trafficSafetyRaw.antiSpamEnabled, 'trafficSafety.antiSpamEnabled', true, errors),
+      windowMs: int(trafficSafetyRaw.burstWindowMs, 'trafficSafety.burstWindowMs', 10000, 1000, 300000, errors),
+      burstLimit: int(trafficSafetyRaw.burstLimit, 'trafficSafety.burstLimit', 5, 2, 100, errors),
+      warningThreshold: int(trafficSafetyRaw.warningThreshold, 'trafficSafety.warningThreshold', 3, 1, 20, errors),
+      banThreshold: int(trafficSafetyRaw.banThreshold, 'trafficSafety.banThreshold', 5, 2, 50, errors),
+      warningWindowMs: int(trafficSafetyRaw.warningWindowMs, 'trafficSafety.warningWindowMs', 3600000, 60000, 86400000, errors),
+      banDurationMs: int(trafficSafetyRaw.banDurationMs, 'trafficSafety.banDurationMs', 900000, 60000, 604800000, errors)
+    },
+    transport: {
+      enabled: bool(trafficSafetyRaw.transportEnabled, 'trafficSafety.transportEnabled', true, errors),
+      minIntervalMs: int(trafficSafetyRaw.minIntervalMs, 'trafficSafety.minIntervalMs', 1200, 500, 60000, errors),
+      maxQueueSize: int(trafficSafetyRaw.maxQueueSize, 'trafficSafety.maxQueueSize', 1000, 10, 10000, errors)
+    },
+    queue: {
+      enabled: bool(trafficSafetyRaw.queueEnabled, 'trafficSafety.queueEnabled', true, errors),
+      auditRetention: int(trafficSafetyRaw.auditRetention, 'trafficSafety.auditRetention', 5000, 100, 20000, errors)
+    }
+  };
+  if (trafficSafetyDefaults.antiSpam.warningThreshold >= trafficSafetyDefaults.antiSpam.banThreshold) {
+    errors.push('trafficSafety.warningThreshold harus lebih kecil dari trafficSafety.banThreshold.');
+  }
+
   const paths = {
     waSessionDir: absPath(wa.sessionDir, 'whatsapp.sessionDir', './session/self', errors, { privateState: true }),
     pluginDir: absPath(plugins.directory, 'plugins.directory', './src/plugins', errors),
@@ -281,6 +314,7 @@ export function validateConfig(raw = {}, secrets = process.env, { requireWhatsAp
   const ownerCodeMaxChars = int(ownerCodeRaw.maxCodeChars, 'ownerCode.maxCodeChars', 8000, 100, 20000, errors);
   const ownerCodeMaxOutputBytes = int(ownerCodeRaw.maxOutputBytes, 'ownerCode.maxOutputBytes', 16000, 1024, 65536, errors);
   const ownerCodeWorkDir = absPath(ownerCodeRaw.workDir, 'ownerCode.workDir', './data/owner-runtime', errors, { privateState: true });
+  const ownerCodeAuditFile = absPath(ownerCodeRaw.auditFile, 'ownerCode.auditFile', './data/owner-code-audit.json', errors, { privateState: true });
   const ownerCodeStateRoot = IN_NODE_TEST ? path.resolve(TEST_STATE_ROOT, 'data') : path.resolve(PROJECT_ROOT, 'data');
   if (ownerCodeWorkDir === path.parse(ownerCodeWorkDir).root
     || ownerCodeWorkDir === PROJECT_ROOT
@@ -304,9 +338,10 @@ export function validateConfig(raw = {}, secrets = process.env, { requireWhatsAp
   return freezeDeep({
     app: { logLevel },
     whatsapp: { pairingNumber, ownerNumber, sessionDir: paths.waSessionDir, syncFullHistory },
-    commands: { prefixes: [...prefixes].sort((a, b) => b.length - a.length), mode: commandMode, allowGroups, runtimeModeFile, maxMessageChars, maxCommandArgs },
+    commands: { prefixes: [...prefixes].sort((a, b) => b.length - a.length), mode: commandMode, allowGroups, runtimeModeFile, unknownCommandNotificationsFile, maxMessageChars, maxCommandArgs },
     plugins: { directory: paths.pluginDir, hotReload, maxFileBytes: maxPluginBytes, maxCommandsPerPlugin },
     antiSpam,
+    trafficSafety: { stateFile: trafficSafetyStateFile, queueFile: outboundQueueFile, defaults: trafficSafetyDefaults },
     instagram: {
       username, pythonBin: paths.igPythonBin, sessionFile: paths.igSessionFile,
       statsFile: paths.igStatsFile, guardFile: paths.igGuardFile,
@@ -316,7 +351,7 @@ export function validateConfig(raw = {}, secrets = process.env, { requireWhatsAp
         requireOwnerApproval, allowedActions: [...safeAllowedActions] }
     },
     growth: { databaseFile: paths.growthDb },
-    ownerCode: { enabled: ownerCodeEnabled, timeoutMs: ownerCodeTimeoutMs, maxCodeChars: ownerCodeMaxChars, maxOutputBytes: ownerCodeMaxOutputBytes, workDir: ownerCodeWorkDir, pythonBin: ownerCodePythonBin, goBin: ownerCodeGoBin, shellBin: ownerCodeShellBin },
+    ownerCode: { enabled: ownerCodeEnabled, timeoutMs: ownerCodeTimeoutMs, maxCodeChars: ownerCodeMaxChars, maxOutputBytes: ownerCodeMaxOutputBytes, workDir: ownerCodeWorkDir, auditFile: ownerCodeAuditFile, pythonBin: ownerCodePythonBin, goBin: ownerCodeGoBin, shellBin: ownerCodeShellBin },
     academix: { enabled: academixEnabled, apiKeyEnv: academixApiKeyEnv, apiKey: academixApiKey, timeoutMs: academixTimeoutMs, maxFileBytes: academixMaxFileBytes, maxTextChars: academixMaxTextChars, inboxDir: paths.academixInbox },
     identity: { lidMapFile: paths.lidMapFile },
     referral: { enabled: referralEnabled,

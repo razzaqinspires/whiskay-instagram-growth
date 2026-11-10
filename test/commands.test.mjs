@@ -1,5 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
+import corePlugin from '../src/plugins/core.mjs';
+import { createUnknownCommandNoticeStore } from '../src/lib/unknown-command-notice-store.mjs';
 import { parseCommand, getCommandPrefixes, extractMessageText, isAuthorizedSelfOrOwner, inspectOwnerAuthorization, handleMessage } from '../src/commands.mjs';
 
 test('interactive responses are converted to command text', () => {
@@ -385,7 +390,7 @@ test('main menu emits exactly three Mixed Native Flow buttons and preserves the 
 });
 
 
-test('main menu sends oversized complete command catalog in bounded text chunks', async () => {
+test('main menu keeps the complete oversized command catalog in one Native Flow message', async () => {
   const relayed = [];
   const textMessages = [];
   const baileysMock = {
@@ -420,11 +425,126 @@ test('main menu sends oversized complete command catalog in bounded text chunks'
     baileys: baileysMock
   });
   assert.equal(handled, true);
-  assert.equal(relayed.length, 1, 'the mixed Native Flow menu is still sent once');
-  assert.ok(textMessages.length > 1, 'the full catalogue is split into follow-up text messages');
-  assert.ok(textMessages.every(value => value.length <= 3600));
-  const joined = textMessages.join('\n');
-  assert.match(joined, /longfeature1/);
-  assert.match(joined, /longfeature45/);
-  assert.match(joined, /alias: \.lf45/);
+  assert.equal(relayed.length, 1, 'the mixed Native Flow menu is sent once');
+  assert.equal(textMessages.length, 0, 'the menu must not send separate catalogue replies');
+  const body = relayed[0].message.viewOnceMessage.message.interactiveMessage.body.text;
+  assert.ok(body.length > 3000, 'the complete catalogue is kept in the button message body');
+  assert.match(body, /longfeature1/);
+  assert.match(body, /longfeature45/);
+  assert.match(body, /alias: \.lf45/);
+  assert.match(body, /Long description 45/);
+  assert.doesNotMatch(body, /Daftar lengkap command.*dikirim setelah menu/i);
+  assert.doesNotMatch(body, /KATALOG COMMAND · [12]\//);
+});
+
+test('unknown prefixed commands are silently ignored without a WhatsApp reply', async () => {
+  const sent = [];
+  const sock = {
+    user: { id: '6281234567890@s.whatsapp.net' },
+    sendMessage: async (jid, payload) => { sent.push({ jid, payload }); return { key: { id: 'unexpected-reply' } }; }
+  };
+  const logs = [];
+  const handled = await handleMessage(sock, {
+    key: { id: 'UNKNOWN-COMMAND-1', fromMe: true, remoteJid: '6281234567890@s.whatsapp.net' },
+    message: { conversation: '.westmanga' }
+  }, {
+    lidManager: null,
+    pluginLoader: { listCommands: () => [], execute: async () => ({ found: false }) },
+    logger: { info() {}, warn() {}, error() {}, debug: (...args) => logs.push(args) },
+    ownerNumber: '6281234567890',
+    allowGroups: false
+  });
+  assert.equal(handled, false);
+  assert.equal(sent.length, 0, 'unknown command must not generate a WhatsApp notification');
+  assert.equal(logs.length, 1, 'unknown command remains visible in local diagnostics');
+});
+
+
+test('unknown command notification can be toggled persistently by owner and defaults to silent', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'whiskay-unknown-notice-'));
+  const store = createUnknownCommandNoticeStore({ filePath: path.join(directory, 'settings.json'), logger: { warn() {} } });
+  const command = corePlugin.commands.find(item => item.name === 'unknownnotice');
+  const sent = [];
+  const sock = {
+    user: { id: '6281234567890@s.whatsapp.net' },
+    sendMessage: async (jid, payload) => {
+      sent.push({ jid, payload });
+      return { key: { id: `sent-${sent.length}` } };
+    }
+  };
+  const pluginLoader = {
+    listCommands: () => [{ name: 'unknownnotice', aliases: ['unknowncmd', 'unknowncommandnotice'] }],
+    execute: async (name, context) => {
+      if (['unknownnotice', 'unknowncmd', 'unknowncommandnotice'].includes(name)) {
+        await command.execute({ ...context, unknownNoticeStore: store });
+        return { found: true };
+      }
+      return { found: false };
+    }
+  };
+  const modeStore = { get: async () => ({ mode: 'self', allowGroups: false, updatedAt: 1 }) };
+  const logger = { info() {}, warn() {}, error() {}, debug() {} };
+  const sendCommand = async text => handleMessage(sock, {
+    key: { id: `incoming-${sent.length}-${text}`, fromMe: true, remoteJid: '6281234567890@s.whatsapp.net' },
+    message: { conversation: text }
+  }, {
+    lidManager: null, pluginLoader, logger, ownerNumber: '6281234567890',
+    allowGroups: false, modeStore, unknownNoticeStore: store,
+    antiSpam: { check: () => ({ allowed: true, warn: false }) }
+  });
+
+  try {
+    assert.equal((await store.get()).enabled, false);
+    await sendCommand('.wmhomd');
+    assert.equal(sent.length, 0, 'default OFF must silently ignore unknown commands');
+
+    await sendCommand('.unknownnotice on');
+    assert.equal((await store.get()).enabled, true);
+    assert.match(sent.at(-1).payload.text, /AKTIF/);
+
+    const beforeUnknown = sent.length;
+    await sendCommand('.wmhome');
+    assert.equal(sent.length, beforeUnknown + 1);
+    assert.match(sent.at(-1).payload.text, /Command tidak dikenal: \.wmhome/);
+
+    await sendCommand('.unknowncmd off');
+    assert.equal((await store.get()).enabled, false);
+    const beforeSilent = sent.length;
+    await sendCommand('.wmwest');
+    assert.equal(sent.length, beforeSilent, 'OFF must restore silent behavior');
+
+    const reloaded = createUnknownCommandNoticeStore({ filePath: path.join(directory, 'settings.json'), logger: { warn() {} } });
+    assert.equal((await reloaded.get()).enabled, false, 'setting persists on disk');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('unknown-notice settings command is owner-only even in public runtime mode', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'whiskay-unknown-notice-auth-'));
+  const store = createUnknownCommandNoticeStore({ filePath: path.join(directory, 'settings.json') });
+  const sent = [];
+  const sock = {
+    user: { id: '6281234567890@s.whatsapp.net' },
+    sendMessage: async (jid, payload) => { sent.push(payload); return { key: { id: 'sent' } }; }
+  };
+  try {
+    const handled = await handleMessage(sock, {
+      key: { id: 'not-owner', fromMe: false, remoteJid: '6289999999999@s.whatsapp.net' },
+      message: { conversation: '.unknownnotice on' }
+    }, {
+      lidManager: null,
+      pluginLoader: { listCommands: () => [], execute: async () => ({ found: false }) },
+      logger: { info() {}, warn() {}, error() {}, debug() {} },
+      ownerNumber: '6281234567890',
+      modeStore: { get: async () => ({ mode: 'public', allowGroups: false, updatedAt: 1 }) },
+      unknownNoticeStore: store,
+      antiSpam: { check: () => ({ allowed: true, warn: false }) }
+    });
+    assert.equal(handled, false);
+    assert.equal(sent.length, 0);
+    assert.equal((await store.get()).enabled, false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

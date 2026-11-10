@@ -2,11 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyMessageUpsert } from '../src/lib/message-ingress.mjs';
 import { spawnSync } from 'node:child_process';
+import { handleMessage } from '../src/commands.mjs';
+import { createOwnerCodeAuditStore } from '../src/lib/owner-code-audit.mjs';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import {
   parseOwnerCodeRequest,
   executeOwnerCodeRequest,
   formatOwnerCodeResult,
-  isOwnerPrivateSelfChat
+  isOwnerPrivateSelfChat,
+  inspectOwnerPrivateSelfChat
 } from '../src/lib/owner-code-runtime.mjs';
 
 const ownerConfig = {
@@ -136,4 +142,166 @@ test('formatted result is bounded for WhatsApp payload size', () => {
   const message = formatOwnerCodeResult(request, { ok: true, durationMs: 1, output: 'x'.repeat(9000) });
   assert.ok(message.length <= 3900);
   assert.match(message, /EVAL RETURN/);
+});
+
+
+test('empty runtime prefixes return actionable usage instead of a generic empty-code error', async () => {
+  for (const [input, expected] of [['>>', 'print("python-ok")'], ['>>>', 'package main'], ['$', '$ ls']]) {
+    const request = parseOwnerCodeRequest(input);
+    const result = await executeOwnerCodeRequest(request, { config: ownerConfig });
+    assert.equal(result.ok, false);
+    assert.match(result.output, /Contoh penggunaan/);
+    assert.match(result.output, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+});
+
+test('owner eval clears outstanding timers when the snippet returns', async () => {
+  const started = Date.now();
+  const result = await executeOwnerCodeRequest(
+    parseOwnerCodeRequest('> setInterval(() => console.log("should-not-repeat"), 5); return "timer-cleaned"'),
+    { config: ownerConfig }
+  );
+  assert.equal(result.ok, true);
+  assert.match(result.output, /timer-cleaned/);
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(Date.now() - started < 2000, true);
+  assert.equal(result.output.includes('should-not-repeat'), false);
+});
+
+test('parser strips a leading Unicode BOM before recognizing a special prefix', () => {
+  assert.equal(parseOwnerCodeRequest('\uFEFF=> "bom-ok"').runtime, 'eval-return');
+});
+
+
+test('owner private self-chat gate returns precise diagnostics for common failures', async () => {
+  const ownerNumber = '6281234567890';
+  const base = { ownerNumber, sessionPn: `${ownerNumber}@s.whatsapp.net` };
+  assert.equal((await inspectOwnerPrivateSelfChat({ ...base, key: { fromMe: false, remoteJid: `${ownerNumber}@s.whatsapp.net` } })).reason, 'FROM_ME_REQUIRED');
+  assert.equal((await inspectOwnerPrivateSelfChat({ ...base, key: { fromMe: true, remoteJid: '120@g.us' } })).reason, 'GROUP_CHAT_FORBIDDEN');
+  assert.equal((await inspectOwnerPrivateSelfChat({ ...base, sessionPn: undefined, key: { fromMe: true, remoteJid: `${ownerNumber}@s.whatsapp.net` } })).reason, 'SESSION_PN_UNAVAILABLE');
+  assert.equal((await inspectOwnerPrivateSelfChat({ ...base, key: { fromMe: true, remoteJid: '6289999999999@s.whatsapp.net' } })).reason, 'CHAT_NOT_OWNER_SELF_CHAT');
+});
+
+
+test('parser tolerates a terminal WhatsApp copy backslash and balanced code fences', () => {
+  assert.equal(parseOwnerCodeRequest('=> 1 + 1\\').source, '1 + 1');
+  assert.equal(parseOwnerCodeRequest('>>\\').source, '');
+  assert.equal(parseOwnerCodeRequest('>>>\\').source, '');
+  assert.equal(parseOwnerCodeRequest('=> ```js\n1 + 1\n```').source, '1 + 1');
+  assert.equal(parseOwnerCodeRequest('>> ```python\nprint("ok")\n```').source, 'print("ok")');
+});
+
+test('owner self-chat authorization does not mistake remoteJidAlt sender identity for destination', async () => {
+  const ownerNumber = '6281234567890';
+  const session = { ownerNumber, sessionPn: `${ownerNumber}@s.whatsapp.net` };
+  assert.equal(await isOwnerPrivateSelfChat({
+    ...session,
+    key: {
+      fromMe: true,
+      remoteJid: '6289999999999@s.whatsapp.net',
+      remoteJidAlt: `${ownerNumber}@s.whatsapp.net`
+    }
+  }), false);
+  assert.equal(await isOwnerPrivateSelfChat({
+    ...session,
+    sessionLid: '123456789@lid',
+    key: { fromMe: true, remoteJid: '123456789@lid' }
+  }), true);
+  assert.equal(await isOwnerPrivateSelfChat({
+    ...session,
+    key: { fromMe: true, remoteJid: '123456789@lid', remoteJidPn: `${ownerNumber}@s.whatsapp.net` }
+  }), true);
+});
+
+test('full handleMessage path executes owner Eval Master prefixes and replies with results', async t => {
+  const ownerNumber = '6281234567890';
+  const sent = [];
+  const sock = {
+    user: { id: `${ownerNumber}@s.whatsapp.net` },
+    sendMessage: async (jid, payload) => {
+      sent.push({ jid, text: payload.text });
+      return { key: { id: `reply-${sent.length}` } };
+    }
+  };
+  const modeStore = { get: async () => ({ mode: 'self', allowGroups: false, updatedAt: 1 }) };
+  const trafficSafety = {
+    updateIngressDecision: async () => true,
+    inspectIncoming: async () => ({ status: 'ACCEPTED' })
+  };
+  const antiSpam = { check: () => ({ allowed: true, release() {} }) };
+  const pluginLoader = { listCommands: () => [], execute: async () => ({ found: false }) };
+  const common = {
+    ownerNumber,
+    lidManager: { getPNForLID: async () => null },
+    pluginLoader,
+    logger: { info() {}, warn() {}, error() {}, debug() {} },
+    modeStore,
+    trafficSafety,
+    antiSpam
+  };
+  const cases = [
+    ['=> 1 + 1', /EVAL RETURN[\s\S]*SUCCESS[\s\S]*2/],
+    ['> return await Promise.resolve("async-pass")', /EVAL ASYNC[\s\S]*SUCCESS[\s\S]*async-pass/],
+    ['$ printf cli-pass', /CLI EXEC[\s\S]*SUCCESS[\s\S]*cli-pass/],
+    ['>> print("python-pass")', /PYTHON[\s\S]*SUCCESS[\s\S]*python-pass/],
+    ['>>> package main\nimport "fmt"\nfunc main() { fmt.Println("go-pass") }', /GO[\s\S]*SUCCESS[\s\S]*go-pass/]
+  ];
+  for (const [text, expected] of cases) {
+    const before = sent.length;
+    await handleMessage(sock, {
+      key: { id: `owner-${before}`, fromMe: true, remoteJid: `${ownerNumber}@s.whatsapp.net` },
+      message: { conversation: text }
+    }, common);
+    assert.equal(sent.length, before + 1, `missing response for prefix ${text.slice(0, 3)}`);
+    assert.match(sent.at(-1).text, expected);
+  }
+});
+
+test('full handleMessage path rejects Eval Master sent to another private chat', async () => {
+  const ownerNumber = '6281234567890';
+  const sent = [];
+  const sock = {
+    user: { id: `${ownerNumber}@s.whatsapp.net` },
+    sendMessage: async (_jid, payload) => { sent.push(payload.text); return { key: { id: 'reply' } }; }
+  };
+  await handleMessage(sock, {
+    key: {
+      id: 'not-self',
+      fromMe: true,
+      remoteJid: '6289999999999@s.whatsapp.net',
+      remoteJidAlt: `${ownerNumber}@s.whatsapp.net`
+    },
+    message: { conversation: '=> 1 + 1' }
+  }, {
+    ownerNumber,
+    lidManager: { getPNForLID: async () => null },
+    pluginLoader: { listCommands: () => [] },
+    logger: { info() {}, warn() {}, error() {}, debug() {} },
+    modeStore: { get: async () => ({ mode: 'self', allowGroups: false, updatedAt: 1 }) }
+  });
+  assert.equal(sent.length, 0);
+});
+
+
+test('owner runtime audit persists hashes and execution metadata without raw source or output', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'whiskay-owner-audit-'));
+  const filePath = path.join(dir, 'owner-code-audit.json');
+  const audit = createOwnerCodeAuditStore({ filePath, retention: 10, now: () => 123456 });
+  try {
+    const entry = await audit.record({
+      runtime: 'eval-return',
+      source: '=> process.env.SECRET',
+      messageId: 'msg-owner-1',
+      ok: true,
+      durationMs: 12
+    });
+    assert.equal(entry.runtime, 'eval-return');
+    assert.equal(entry.ok, true);
+    const raw = await readFile(filePath, 'utf8');
+    assert.doesNotMatch(raw, /process\\.env\\.SECRET/);
+    assert.match(raw, /sourceHash/);
+    assert.equal((await audit.list()).length, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

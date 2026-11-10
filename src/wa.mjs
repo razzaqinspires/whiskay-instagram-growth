@@ -4,11 +4,13 @@ import pino from 'pino';
 import { attachLidManager, normalizeUserJid } from './lib/lid-manager.mjs';
 import { getReconnectDelay } from './lib/reconnect-policy.mjs';
 import { classifyMessageUpsert } from './lib/message-ingress.mjs';
-import { extractMessageText, parseCommand } from './commands.mjs';
+import { extractMessageText, parseCommand, trafficSafetyManager } from './commands.mjs';
 import { parseOwnerCodeRequest } from './lib/owner-code-runtime.mjs';
 import { config } from './config.mjs';
 import { getPollCreationMessage } from './lib/poll-store.mjs';
 import { createMessageDeliveryTracker } from './lib/message-delivery-tracker.mjs';
+import { createOutboundMessageQueue } from './lib/outbound-message-queue.mjs';
+import { sprMessageStore } from './lib/spr-message-store.mjs';
 
 const { pairingNumber: phoneNumber, sessionDir } = config.whatsapp;
 const logger = pino({
@@ -71,13 +73,19 @@ function scheduleReconnect() {
   reconnectTimer.unref?.();
 }
 
-function trackMessage(sock, msg, lidManagerPromise, eventType) {
+function trackMessage(sock, msg, lidManagerPromise, eventType, ingressPromise) {
   if (typeof onMessageHandler !== 'function') return;
   const task = (async () => {
     try {
-      const lidManager = await lidManagerPromise;
+      const [lidManager, ingress] = await Promise.all([
+        lidManagerPromise,
+        Promise.resolve(ingressPromise).catch(error => {
+          logger.warn({ err: error }, '[TRAFFIC SAFETY] Inbound audit write failed');
+          return null;
+        })
+      ]);
       if (shuttingDown) return;
-      await onMessageHandler(sock, msg, { lidManager, logger, eventType });
+      await onMessageHandler(sock, msg, { lidManager, logger, eventType, ingressId: ingress?.ingressId });
     } catch (error) {
       logger.error({ err: error }, '[COMMAND] message handler failed');
     }
@@ -102,12 +110,27 @@ async function startSocketInternal() {
     syncFullHistory: config.whatsapp.syncFullHistory,
     getMessage: async key => getPollCreationMessage(key)
   });
+  const credentialIdentity = state.creds?.me || {};
+  Object.defineProperty(sock, 'whiskayIdentity', {
+    configurable: false,
+    enumerable: false,
+    value: Object.freeze({
+      pn: credentialIdentity.id || sock.user?.id || null,
+      lid: credentialIdentity.lid || sock.user?.lid || null
+    })
+  });
   activeSocket = sock;
 
   // Observe outbound send results plus Baileys status/receipt events. This is
   // diagnostics only: no automatic resend is performed for ambiguous outcomes.
   const deliveryTracker = createMessageDeliveryTracker({ logger });
   deliveryTracker.attach(sock);
+  const outboundQueue = createOutboundMessageQueue({
+    filePath: config.trafficSafety.queueFile,
+    logger,
+    getSettings: () => trafficSafetyManager.getSettings()
+  });
+  await outboundQueue.attach(sock);
 
   // Persist credentials without scanning the key directory. Baileys rotates
   // pre-key files itself; a concurrent stat/chmod sweep can race with that.
@@ -136,6 +159,7 @@ async function startSocketInternal() {
     }
 
     if (connection === 'open') {
+      await outboundQueue.setReady(true);
       if (stableConnectionTimer) clearTimeout(stableConnectionTimer);
       logger.info('[WHISKAY SELF] WhatsApp connection opened.');
       const sessionPn = normalizeUserJid(sock.user?.id);
@@ -164,6 +188,7 @@ async function startSocketInternal() {
     }
 
     if (connection !== 'close') return;
+    await outboundQueue.setReady(false);
 
     if (stableConnectionTimer) {
       clearTimeout(stableConnectionTimer);
@@ -196,6 +221,22 @@ async function startSocketInternal() {
     logger
   });
   sock.ev.on('messages.upsert', event => {
+    const rawMessages = Array.isArray(event?.messages) ? event.messages : [];
+    const ownerRuntimeCandidates = rawMessages.flatMap(message => {
+      const text = extractMessageText(message?.message);
+      const request = parseOwnerCodeRequest(text);
+      return request ? [{ message, request }] : [];
+    });
+    if (ownerRuntimeCandidates.length) {
+      logger.info({
+        eventType: event?.type || 'unknown',
+        candidates: ownerRuntimeCandidates.length,
+        fromMeCount: ownerRuntimeCandidates.filter(item => item.message?.key?.fromMe === true).length,
+        runtimes: [...new Set(ownerRuntimeCandidates.map(item => item.request.runtime))],
+        ownerCodeEnabled: config.ownerCode.enabled
+      }, '[OWNER RUNTIME] Prefix detected at WhatsApp ingress');
+    }
+
     // Keep `notify` as the only executable event class. Baileys uses `append`
     // for history/backfill, which must never replay old owner commands.
     const batch = classifyMessageUpsert(event, {
@@ -206,10 +247,35 @@ async function startSocketInternal() {
     });
 
     if (batch.type !== 'notify') {
+      if (ownerRuntimeCandidates.length) {
+        logger.warn({
+          eventType: batch.type,
+          candidates: ownerRuntimeCandidates.length,
+          fromMeCount: ownerRuntimeCandidates.filter(item => item.message?.key?.fromMe === true).length
+        }, '[OWNER RUNTIME] Prefix not executed: non-live/history event');
+      }
       if (batch.total > 0) {
         logger.debug({ eventType: batch.type, batchSize: batch.total }, '[WHATSAPP] Non-live message batch ignored');
       }
       return;
+    }
+
+    const commandMessages = new Set(batch.messages);
+    for (const incoming of batch.liveMessages || []) {
+      // SPR stores only sender/chat identifiers, stanza ID, and timestamp.
+      // Message bodies and media are never retained.
+      sprMessageStore.save(incoming);
+      const sender = incoming.key?.participant || incoming.key?.remoteJid;
+      const messageType = Object.keys(incoming.message || {})[0] || 'message';
+      const ingressPromise = trafficSafetyManager.recordInboundEvent({
+        sender, messageId: incoming.key?.id, messageType
+      });
+      if (commandMessages.has(incoming)) {
+        // The same durable ingress row is updated by command policy evaluation.
+        trackMessage(sock, incoming, lidManagerPromise, batch.type, ingressPromise);
+      } else {
+        ingressPromise.catch(error => logger.warn({ error: error.message }, '[TRAFFIC SAFETY] Inbound audit write failed'));
+      }
     }
 
     if (batch.messages.length > 0) {
@@ -222,11 +288,6 @@ async function startSocketInternal() {
       }, '[WHATSAPP] Live command message received');
     }
 
-    for (const msg of batch.messages) {
-      // Preserve fromMe=true: commands are intentionally sent from the owner's
-      // linked primary device to the account's own chat.
-      trackMessage(sock, msg, lidManagerPromise, batch.type);
-    }
   });
 
   try {
@@ -288,6 +349,11 @@ export async function closeWA() {
     }
 
     const sock = activeSocket;
+    if (sock?.whiskayOutboundQueue) {
+      const drained = await sock.whiskayOutboundQueue.drain(MESSAGE_DRAIN_TIMEOUT_MS);
+      if (!drained) logger.warn('[OUTBOUND QUEUE] Shutdown grace period elapsed; pending messages remain persisted.');
+      await sock.whiskayOutboundQueue.setReady(false);
+    }
     if (sock) await endSocket(sock, new Error('WHISKAY graceful shutdown'));
     if (activeSocket === sock) activeSocket = undefined;
 

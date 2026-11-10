@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "policy": "CONTRIBUTED_IMMUTABLE",
+  "entries": [
+    {
+      "id": "kata-bang-windah-image-canvas",
+      "name": "Kata Bang Windah [IMAGE CANVAS]",
+      "creator": "Rizkyrohan",
+      "moduleFormat": "commonjs-script",
+      "path": "library/contributed/cjs/katabangwaindah.canvas.cjs",
+      "sourceChannel": "https://whatsapp.com/channel/0029VbDWBmtA89MamPba8q3f",
+      "upstreamFile": "https://github.com/rzkrohan/scraper/blob/main/image/katabangwaindah%5BCanvas%5D.js",
+      "upstreamBlobSha": "ef6164ab816c475df465f75582f9be043396d5c7",
+      "fontSource": "https://github.com/rzkrohan/Font/blob/2e114f4712fbab9e290cb822ab7bfe0b02bbcaab/arialnarrow.ttf",
+      "backgroundSource": "https://raw.githubusercontent.com/rzkrohan/image-canvas/refs/heads/main/IMG-20261110-WA0238.jpg",
+      "adapter": "src/library/adapters/katabangwaindah.mjs",
+      "permissionStatus": "unverified-private-use-only",
+      "notes": "Script-style source, not a CommonJS exported API. Preserve verbatim; adapter implements controlled renderer logic externally."
+    },
+    {
+      "id": "snapgram-io-instagram-scraper",
+      "name": "Snapgram.io Instagram Scraper with Turnstile Captcha Solver & UA Customization",
+      "creator": "Not specified in supplied snippet",
+      "moduleFormat": "commonjs",
+      "path": "library/contributed/cjs/snapgram-scraper.cjs",
+      "sourceChannel": "Supplied in user-provided WhatsApp message; no public source URL supplied",
+      "upstreamFile": null,
+      "retrievedFrom": "User-provided pasted source attachment",
+      "sha256": "64e96a6e5a1595300ef01ae260eaa2fe32a3668eeb4fdd88ae4c7a292cc3e9ba",
+      "permissionStatus": "unverified-private-use-only",
+      "executionStatus": "quarantined",
+      "securityNotes": "Contains a hard-coded third-party solver credential and Turnstile-solving flow. Source preserved verbatim; runtime execution disabled. Credential considered exposed and must be rotated by its owner."
+    },
+    {
+      "id": "igram-world-instagram-scraper",
+      "name": "iGram.world Instagram Media Scraper & Downloader",
+      "creator": "Not specified in supplied snippet",
+      "moduleFormat": "commonjs",
+      "path": "library/contributed/cjs/igram-world-scraper.cjs",
+      "sourceChannel": "Supplied in user-provided WhatsApp message; no public source URL supplied",
+      "upstreamFile": null,
+      "retrievedFrom": "User-provided pasted source attachment",
+      "sha256": "11e76bdb5218e0f315794d1cb207455ba0fa7cf9f0d81c734432f970997f7f48",
+      "permissionStatus": "unverified-private-use-only",
+      "executionStatus": "quarantined",
+      "securityNotes": "Contains a hard-coded third-party solver credential, Turnstile-solving flow, and downloads/executes remote JavaScript in node:vm to extract a request signer. Source preserved verbatim; runtime execution disabled. Credential considered exposed and must be rotated by its owner."
+    }
+  ]
+}

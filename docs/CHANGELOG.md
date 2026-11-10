@@ -1,4 +1,13 @@
-## 0.10.26 — Owner Code Runtime restoration and Go support (2026-11-09)
+# Changelog
+
+## v0.10.40
+
+- Added Instagram multi-provider fallback engine and provider health registry.
+- Added `.igdl providers` command.
+- Preserved Snapgram and iGram CJS contributions verbatim; both remain quarantined pending security and permission review.
+- Added fallback, redaction, and quarantine tests.
+
+0.10.26 — Owner Code Runtime restoration and Go support (2026-11-09)
 
 - Restored the dedicated, non-command owner runtime path for `>` (async JavaScript), `=>` (JavaScript expression/return), `$` (Bash CLI), and `>>` (Python 3).
 - Added `>>>` for Go source execution. Go module proxy/checksum downloads are disabled for this runner.
@@ -382,3 +391,15 @@
 - Added `npm run runtime:smoke` to verify runtime config, plugin discovery, `.waform`, `.tiktok`, `.aiscrape`, their aliases, and duplicate command-key safety without sending WhatsApp messages or calling external providers.
 - Added the controlled live-deployment checklist and evidence boundary in `docs/qa/RUNTIME-VALIDATION-PART5-2026-11-08.md`.
 - Live WhatsApp/provider validation remains an operator-side step; this patch does not claim a production deployment.
+
+
+## v0.10.39 — Isolated Contributed Library & Kata Bang Windah Canvas
+
+- Added a preservation-first contribution area at `library/contributed/`; CommonJS contributions receive their own nested `package.json` module scope and are excluded from the active PluginLoader scan.
+- Added `src/library/adapters/katabangwaindah.mjs` as an independent control plane for the contributed Kata Bang Windah image canvas. The adapter owns command input, layout, text wrapping, font loading, colors, JPEG quality, response style, network bounds, and error handling.
+- Added `.katabg`, `.katabangwaindah`, and `.windahcanvas` command aliases.
+- Added `@napi-rs/canvas` dependency declaration and release packaging support for the isolated `library/` directory.
+- Added injected-engine tests for the layout/config/rendering flow without requiring a native canvas installation.
+- Upstream contributed source snapshot is retained verbatim after its header metadata; custom behavior must never be patched into that file.
+- Dependency installation / registry lockfile update could not be completed in this environment because registry DNS lookup returned `EAI_AGAIN`; live image generation was not tested.
+- Final v0.10.39 verification: focused contribution tests 9/9; syntax 135 files PASS; docs index 176 entries PASS; runtime smoke 13 plugins/41 commands PASS; config validation PASS; permissions PASS. Full suite 358/361 with three unrelated legacy Growth order/queue failures, documented in the version QA report.

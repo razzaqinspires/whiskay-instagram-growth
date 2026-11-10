@@ -1,8 +1,8 @@
 {
   "name": "whiskay-instagram-growth",
-  "version": "0.10.31",
+  "version": "0.10.40",
   "private": true,
-  "description": "WHISKAY private WhatsApp runtime with complete command discovery, structured message routing, TikTok multi-provider downloader, and opt-in AI scrape gateway.",
+  "description": "WHISKAY private WhatsApp runtime with immutable contributed library and multi-provider Instagram fallback control plane.",
   "type": "module",
   "engines": {
     "node": ">=22.5.0 <23",
@@ -37,7 +37,8 @@
   "dependencies": {
     "@whiskeysockets/baileys": "7.0.0-rc14",
     "pino": "9.6.0",
-    "axios": "^1.11.0"
+    "axios": "^1.11.0",
+    "@napi-rs/canvas": "^0.1.80"
   },
   "packageManager": "npm@10.9.2"
 }

@@ -1,7 +1,7 @@
 # WHISKAY — Private WhatsApp Runtime & Organic Instagram Growth
 
-**Versi 0.10.31 — WhatsApp Message Engine Integration · Delivery Reliability · Native Flow · Media Recovery · Owner Runtime & Organic Growth**  
-**Tanggal:** 9 November 2026  
+**Versi 0.10.39 — Isolated Contributed Library · Kata Bang Windah Image Canvas**  
+**Tanggal:** 10 November 2026  
 **Runtime:** Node.js 22.5–22.x · npm 10+ · Python 3.11+ untuk adapter Instagram
 
 WHISKAY adalah proyek eksperimental private/self berbasis WhatsApp Baileys. Sistem ini membantu owner mengelola command pribadi, memeriksa satu akun Instagram yang sedang login, mencatat campaign organik, menganalisis performa konten, menyediakan downloader media, pemeriksaan dokumen Academi.cx, dan adapter AI scraping eksternal yang nonaktif secara default. Proyek belum menjadi layanan publik dan tidak memiliki subsistem saldo, wallet, kredit, ledger, budget, order, atau pembayaran internal. Plugin Academi.cx tetap dapat memakai akun API eksternal milik operator dan provider dapat menerapkan biaya sendiri.
@@ -22,9 +22,9 @@ WHISKAY adalah proyek eksperimental private/self berbasis WhatsApp Baileys. Sist
 
 Detail penghapusan fitur finansial dan migrasi data legacy: [Removed Financial Concepts](docs/REMOVED-FINANCIAL-CONCEPTS-v0.10.12.md).
 
-Dokumentasi rilis terbaru: [Part 5 Message Engine Integration Research](docs/research/WHATSAPP-MESSAGE-ENGINE-INTEGRATION-v0.10.31.md), [Release Notes v0.10.31](docs/releases/RELEASE-NOTES-v0.10.31.md), [Upgrade v0.10.31](docs/upgrades/UPGRADE-v0.10.31.md), dan [QA v0.10.31](docs/qa/QA-REPORT-v0.10.31.md). Riwayat Part 4: [Baileys Delivery Research](docs/research/BAILEYS-DELIVERY-RESEARCH-v0.10.30.md), [Release Notes v0.10.30](docs/releases/RELEASE-NOTES-v0.10.30.md), [Upgrade v0.10.30](docs/upgrades/UPGRADE-v0.10.30.md), dan [QA v0.10.30](docs/qa/QA-REPORT-v0.10.30.md). Riwayat Part 3: [Baileys Interactive Research](docs/research/BAILEYS-INTERACTIVE-RESEARCH-v0.10.29.md), [Release Notes v0.10.29](docs/releases/RELEASE-NOTES-v0.10.29.md), [Upgrade v0.10.29](docs/upgrades/UPGRADE-v0.10.29.md), dan [QA v0.10.29](docs/qa/QA-REPORT-v0.10.29.md). Riwayat Part 2: [Baileys Media Research v0.10.28](docs/research/BAILEYS-MEDIA-RESEARCH-v0.10.28.md), [Release Notes v0.10.28](docs/releases/RELEASE-NOTES-v0.10.28.md), [Upgrade v0.10.28](docs/upgrades/UPGRADE-v0.10.28.md), dan [QA v0.10.28](docs/qa/QA-REPORT-v0.10.28.md).
+Dokumentasi rilis terbaru: [Release Notes v0.10.39](docs/releases/RELEASE-NOTES-v0.10.39.md), [Upgrade v0.10.39](docs/upgrades/UPGRADE-v0.10.39.md), [QA v0.10.39](docs/qa/QA-REPORT-v0.10.39.md), dan [Contributed Library Governance](docs/CONTRIBUTED-LIBRARY.md). Riwayat sebelumnya: [SPR Integration Research v0.10.38](docs/research/SPR-INTEGRATION-v0.10.38.md), [Release Notes v0.10.38](docs/releases/RELEASE-NOTES-v0.10.38.md), [Upgrade v0.10.38](docs/upgrades/UPGRADE-v0.10.38.md), dan [QA v0.10.38](docs/qa/QA-REPORT-v0.10.38.md). Rilis sebelumnya: [Eval Master Reliability Research v0.10.37](docs/research/EVAL-MASTER-RELIABILITY-v0.10.37.md), [Release Notes v0.10.37](docs/releases/RELEASE-NOTES-v0.10.37.md), [Upgrade v0.10.37](docs/upgrades/UPGRADE-v0.10.37.md), dan [QA v0.10.37](docs/qa/QA-REPORT-v0.10.37.md). Rilis sebelumnya: [Traffic Safety Research v0.10.36](docs/research/TRAFFIC-SAFETY-v0.10.36.md), [Release Notes v0.10.36](docs/releases/RELEASE-NOTES-v0.10.36.md), [Upgrade v0.10.36](docs/upgrades/UPGRADE-v0.10.36.md), dan [QA v0.10.36](docs/qa/QA-REPORT-v0.10.36.md). Rilis sebelumnya: [Unknown Command Notifications](docs/research/UNKNOWN-COMMAND-NOTIFICATIONS-v0.10.35.md), [Release Notes](docs/releases/RELEASE-NOTES-v0.10.35.md), [Upgrade](docs/upgrades/UPGRADE-v0.10.35.md), [QA](docs/qa/QA-REPORT-v0.10.35.md). Riwayat menu satu pesan: [Research](docs/research/COMMAND-MENU-RESEARCH-v0.10.34.md), [Release Notes](docs/releases/RELEASE-NOTES-v0.10.34.md), [Upgrade](docs/upgrades/UPGRADE-v0.10.34.md), dan [QA](docs/qa/QA-REPORT-v0.10.34.md). Riwayat v0.10.33: [Research](docs/research/COMMAND-MENU-RESEARCH-v0.10.33.md), [Release Notes](docs/releases/RELEASE-NOTES-v0.10.33.md), [Upgrade](docs/upgrades/UPGRADE-v0.10.33.md), dan [QA](docs/qa/QA-REPORT-v0.10.33.md). Riwayat Part 6: [Owner Runtime Research v0.10.32](docs/research/OWNER-RUNTIME-RESEARCH-v0.10.32.md), [Release Notes v0.10.32](docs/releases/RELEASE-NOTES-v0.10.32.md), [Upgrade v0.10.32](docs/upgrades/UPGRADE-v0.10.32.md), dan [QA v0.10.32](docs/qa/QA-REPORT-v0.10.32.md). Riwayat Part 5: [Part 5 Message Engine Integration Research](docs/research/WHATSAPP-MESSAGE-ENGINE-INTEGRATION-v0.10.31.md), [Release Notes v0.10.31](docs/releases/RELEASE-NOTES-v0.10.31.md), [Upgrade v0.10.31](docs/upgrades/UPGRADE-v0.10.31.md), dan [QA v0.10.31](docs/qa/QA-REPORT-v0.10.31.md). Riwayat Part 4: [Baileys Delivery Research](docs/research/BAILEYS-DELIVERY-RESEARCH-v0.10.30.md), [Release Notes v0.10.30](docs/releases/RELEASE-NOTES-v0.10.30.md), [Upgrade v0.10.30](docs/upgrades/UPGRADE-v0.10.30.md), dan [QA v0.10.30](docs/qa/QA-REPORT-v0.10.30.md). Riwayat Part 3: [Baileys Interactive Research](docs/research/BAILEYS-INTERACTIVE-RESEARCH-v0.10.29.md), [Release Notes v0.10.29](docs/releases/RELEASE-NOTES-v0.10.29.md), [Upgrade v0.10.29](docs/upgrades/UPGRADE-v0.10.29.md), dan [QA v0.10.29](docs/qa/QA-REPORT-v0.10.29.md). Riwayat Part 2: [Baileys Media Research v0.10.28](docs/research/BAILEYS-MEDIA-RESEARCH-v0.10.28.md), [Release Notes v0.10.28](docs/releases/RELEASE-NOTES-v0.10.28.md), [Upgrade v0.10.28](docs/upgrades/UPGRADE-v0.10.28.md), dan [QA v0.10.28](docs/qa/QA-REPORT-v0.10.28.md).
 
-Dokumentasi integrasi dan source governance: [WhatsApp Message Engine Research v0.10.31](docs/research/WHATSAPP-MESSAGE-ENGINE-INTEGRATION-v0.10.31.md), [Project Structure](docs/PROJECT-STRUCTURE.md), [Scripts Reference](docs/guides/SCRIPTS-REFERENCE.md), [Research Register](docs/RESEARCH-REGISTER.md), dan [Growth Queue Operations — retired historical reference](docs/GROWTH-QUEUE-OPERATIONS.md).
+Dokumentasi library kontribusi: [Contributed Library Governance](docs/CONTRIBUTED-LIBRARY.md). Dokumentasi integrasi dan source governance: [WhatsApp Message Engine Research v0.10.31](docs/research/WHATSAPP-MESSAGE-ENGINE-INTEGRATION-v0.10.31.md), [Project Structure](docs/PROJECT-STRUCTURE.md), [Scripts Reference](docs/guides/SCRIPTS-REFERENCE.md), [Research Register](docs/RESEARCH-REGISTER.md), dan [Growth Queue Operations — retired historical reference](docs/GROWTH-QUEUE-OPERATIONS.md).
 
 ## 2. Persyaratan dan instalasi
 
@@ -34,8 +34,8 @@ Dokumentasi integrasi dan source governance: [WhatsApp Message Engine Research v
 - Akun WhatsApp owner untuk pairing Baileys.
 
 ```bash
-unzip whiskay-instagram-growth-v0.10.30.zip
-cd whiskay-instagram-growth-v0.10.30
+unzip whiskay-instagram-growth-v0.10.32.zip
+cd whiskay-instagram-growth-v0.10.32
 cp .env.example .env
 cp config/app.example.json config/app.json
 nvim config/app.json
@@ -280,7 +280,7 @@ Konfigurasi optional: `YOUTUBE_MUSIC_API_KEY`, `YOUTUBE_MUSIC_CLIENT_VERSION`, d
 |---|---|---|
 | Bootstrap | `index.mjs`, `scripts/start.mjs` | Startup, shutdown, process lock |
 | WhatsApp | `src/wa.mjs`, `src/commands.mjs`, `src/lib/whatsapp-message-router.mjs` | Baileys, command/plugin dispatch, owner authorization, unified message routing |
-| Owner runtime | `src/lib/owner-code-runtime.mjs` | JavaScript eval, CLI, Python, Go; bukan plugin command; owner private self-chat only |
+| Owner runtime | `src/lib/owner-code-runtime.mjs` | `>` async JS, `=>` return JS, `$` Bash, `>>` Python, `>>>` Go; bukan plugin command; owner private self-chat only; timer cleanup dan gate diagnostics |
 | Runtime mode | `src/lib/runtime-mode.mjs` | Persistensi mode self/public dan group switch |
 | Plugins | `src/plugins/` | Core, Instagram stats/growth, `.igdl` KOL.ID, `.tiktok` multi-provider, `.remini`, `.acad`, referral opsional |
 | Instagram bridge | `src/instagram.mjs`, `python/` | Satu session Instagram dan pembacaan terbatas |
@@ -446,6 +446,10 @@ Setiap dokumen `docs/**/*.md` ditautkan langsung di bawah ini agar pemeriksaan d
 - [COMMAND-RECOMMENDATION-ENGINE.md](docs/COMMAND-RECOMMENDATION-ENGINE.md)
 - [CONFIGURATION.md](docs/CONFIGURATION.md)
 - [CONTENT-TO-FOLLOWER-INTELLIGENCE.md](docs/CONTENT-TO-FOLLOWER-INTELLIGENCE.md)
+- [CONTRIBUTED-LIBRARY.md](docs/CONTRIBUTED-LIBRARY.md)
+- [RELEASE-NOTES-v0.10.39.md](docs/releases/RELEASE-NOTES-v0.10.39.md)
+- [UPGRADE-v0.10.39.md](docs/upgrades/UPGRADE-v0.10.39.md)
+- [QA-REPORT-v0.10.39.md](docs/qa/QA-REPORT-v0.10.39.md)
 - [EXTERNAL-INTEGRATION-REQUESTS.md](docs/EXTERNAL-INTEGRATION-REQUESTS.md)
 - [FOLLOWER-GROWTH-PLAYBOOK.md](docs/FOLLOWER-GROWTH-PLAYBOOK.md)
 - [GROWTH-CAMPAIGNS.md](docs/GROWTH-CAMPAIGNS.md)
@@ -565,3 +569,85 @@ Setiap dokumen `docs/**/*.md` ditautkan langsung di bawah ini agar pemeriksaan d
 ## 9. WhatsApp delivery diagnostics
 
 `sendMessage` dan `relayMessage` dicatat oleh delivery tracker in-memory. Pemetaan LID status/broadcast juga mendukung cross-pair `participant` + `remoteJidAlt` saat bentuk envelope cocok. `sendMessage` dan `relayMessage` dicatat oleh delivery tracker in-memory. Event `messages.update` dan `message-receipt.update` dipakai untuk membedakan server acknowledgment, delivery acknowledgment, read, dan played. Periksa ringkasan melalui `.wadelivery` atau detail melalui `.wadelivery <messageId>`. `SERVER_ACK` bukan bukti pesan diterima atau dibaca oleh penerima. Hasil relay timeout dianggap ambigu dan tidak memicu resend otomatis. Cache dibatasi 2.000 record/24 jam dan hilang ketika proses restart. Detail: [Baileys Delivery Research](docs/research/BAILEYS-DELIVERY-RESEARCH-v0.10.30.md).
+\n## Unknown command notifications\n\nOwner-only controls: `.unknownnotice status`, `.unknownnotice on`, `.unknownnotice off` (aliases: `.unknowncmd`, `.unknowncommandnotice`). Default OFF. State is persisted in `data/unknown-command-notifications.json`.\n
+
+## WhatsApp Traffic Safety (v0.10.36)
+
+Owner-only control panel:
+- `.safety status`
+- `.safety cooldown on|off`
+- `.safety cooldown-ms <0-60000>`
+- `.safety spam on|off`
+- `.safety spam limits <burst> <warning> <ban> <window-seconds>`
+- `.safety ban-duration <minutes>`
+- `.safety transport on|off`
+- `.safety queue on|off`
+- `.safety rate <500-60000>`
+- `.safety bans`
+- `.safety ban <international-number> [minutes]`
+- `.safety unban <international-number>`
+
+All live inbound message metadata and command decisions are recorded without retaining raw chat bodies. Outbound WhatsApp `sendMessage` calls pass through a persistent FIFO queue by default. Pending payloads are stored in a private JSON file and cleared after send; uncertain sends after process interruption or relay errors are marked `UNKNOWN` and are not blindly retried. Queue text responses include queue position, estimated wait, and configured send interval.
+
+Traffic state: `data/whatsapp-traffic-safety.json`. Outbound queue: `data/whatsapp-outbound-queue.json`. Both are private runtime files, excluded from source archives.
+
+The transport layer applies conservative pacing and bounded queueing only. It does not spoof WhatsApp protocol traffic, imitate human behavior, rotate authentication material manually, or bypass platform enforcement. Use an authorized WhatsApp Business Platform for business automation and comply with the applicable policies.
+
+
+## Eval Master — Owner Runtime (v0.10.37)
+
+Eval Master remains a dedicated owner-only syntax, not a regular plugin command and not listed in `.menu`:
+- `>` — JavaScript async body; use `return` to return a value.
+- `=>` — JavaScript expression / explicit return.
+- `$` — Bash CLI execution.
+- `>>` — Python execution.
+- `>>>` — Go execution.
+
+Examples:
+- `=> 1 + 1`
+- `> return await Promise.resolve('ok')`
+- `$ ls`
+- `>> print('python-ok')`
+- `>>> package main\\nimport "fmt"\\nfunc main() { fmt.Println("go-ok") }`
+
+The parser tolerates one terminal backslash used by some copied WhatsApp line-continuation formats and balanced Markdown code fences. Baileys ingress logs record runtime prefix detection, event type, and fromMe count without logging source code. Only live `notify` messages execute; history/backfill (`append`) is never executed.
+
+Owner authorization requires `fromMe`, matching configured owner number and authenticated session PN, and a private self-chat destination. The destination is checked from `remoteJid`/`remoteJidPn`; `remoteJidAlt` is not treated as the destination because Baileys may use it for the sender's alternate identity. Session PN/LID are taken from authenticated auth credentials when available.
+
+Execution metadata is persisted to `data/owner-code-audit.json`: runtime, source SHA-256, message ID, timestamp, success, duration, and exit code. Raw source and output are not stored. Eval remains privileged code execution, not a sandbox; run WHISKAY under a dedicated non-root OS account.
+
+
+## SPR — Send Private Relay (v0.10.38)
+
+SPR is a standalone ESM plugin (`src/plugins/spr.mjs`) and does not replace the Baileys serializer, Native Flow builders, message router, plugin loader, or outbound queue.
+
+Commands:
+- `.spr <text>` — reply to a user's message in a group to send a normal private DM to that author.
+- `.spr @mention | <text>` — target a mentioned user in the current chat, using the metadata index.
+- `.spr <number> | <text> | <groupJid>` — find the latest indexed message by that user in the specified group and send a normal private DM.
+- `.spr2 <number> | <text> | <groupJid>` — alternate command entry point using the same explicit private-DM transport; it does not attempt hidden group delivery.
+- `.sprstatus` — show index and outbound tracking counts.
+- `.sprclear` — clear the in-memory incoming metadata index.
+- `.sprdmsg <messageId> CONFIRM` / `.sprdelete` — request deletion of a previously recorded outbound SPR message sent by this bot only.
+
+The original uploaded plugin's `messageId` relay trick and `dmsg` group-status/protocol-message manipulation are intentionally not copied. They are not documented as a supported private-visibility mechanism and cannot guarantee that only one group member sees a message or that target chat history is erased. WHISKAY uses a normal direct private message instead. Deletion is limited to a known bot-sent message key and follows standard Baileys `delete` semantics.
+
+The in-memory index stores only message ID, chat JID, sender PN/LID aliases, and timestamp. It does not store message body or media. The default retention is 12 hours and the index is bounded to 20,000 records. It is cleared on process restart. Message capture occurs only for live `notify` messages; history/backfill is not indexed for SPR.
+
+The SPR plugin is owner-only at execution time and requires the authenticated socket identity to match `whatsapp.ownerNumber`. The owner can issue commands from allowed group contexts when the existing runtime group policy permits it.
+
+
+## 20. Isolated Contributed Library
+
+Source fitur yang diberikan kontributor disimpan di `library/contributed/` berdasarkan format/module scope dan diperlakukan sebagai source immutable. Folder ini tidak dipindai oleh PluginLoader. Semua pengaturan, input, output style, fallback, validasi, dan integrasi WhatsApp dikerjakan oleh adapter di `src/library/adapters/`.
+
+Fitur pertama: `.katabg <teks>` (alias `.katabangwaindah`, `.windahcanvas`), `.katabg config`, `.katabg set <key> <value>`, `.katabg reset`, dan `.katabg help`. Konfigurasi disimpan privat di `data/contributed-config/katabg.json`. Source CJS + credit Rizkyrohan berada di `library/contributed/cjs/katabangwaindah.canvas.cjs`; control plane terpisah berada di `src/library/adapters/katabangwaindah.mjs`. Aturan preservasi, checklist onboarding kontribusi berikutnya, dan batas kompatibilitas: [Contributed Library Governance](docs/CONTRIBUTED-LIBRARY.md).
+
+
+## Instagram multi-provider fallback (v0.10.40)
+
+See [`docs/INSTAGRAM-MULTI-PROVIDER-FALLBACK.md`](docs/INSTAGRAM-MULTI-PROVIDER-FALLBACK.md) for the provider registry, failover rules, contribution provenance, security quarantine, commands, and QA notes.
+
+- [Release Notes v0.10.40](docs/releases/RELEASE-NOTES-v0.10.40.md)
+- [Upgrade Guide v0.10.40](docs/upgrades/UPGRADE-v0.10.40.md)
+- [QA Report v0.10.40](docs/qa/QA-REPORT-v0.10.40.md)

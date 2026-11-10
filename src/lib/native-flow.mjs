@@ -255,7 +255,7 @@ export async function sendNativeFlow(sock, jid, options = {}, quoted = null, { b
     const hasHeader = Boolean(options.title || options.subtitle || mediaInput);
     const interactiveMessage = {
       ...(hasHeader ? { header: { ...(options.title ? { title: cleanText(options.title, 'title', 80) } : {}), ...(options.subtitle ? { subtitle: cleanText(options.subtitle, 'subtitle', 120) } : {}), hasMediaAttachment: Boolean(mediaInput), ...preparedHeaderMedia } } : {}),
-      body: { text: cleanText(options.body, 'body', 3000) },
+      body: { text: cleanText(options.body, 'body', 12000) },
       ...(options.footer ? { footer: { text: cleanText(options.footer, 'footer', 200) } } : {}),
       ...(options.contextInfo ? { contextInfo: options.contextInfo } : {}),
       nativeFlowMessage: { buttons, messageParamsJson: '' }
